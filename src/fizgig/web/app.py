@@ -23,6 +23,7 @@ except ImportError as exc:  # pragma: no cover - gives a useful startup error
 from fizgig import __version__ as FIZGIG_VERSION
 from fizgig.app.dataset import DatasetService
 from fizgig.app.image_prep import ImagePrepService
+from fizgig.app.workspace import WorkspaceStateError, WorkspaceStateService
 from fizgig.app.presets import (
     PresetError,
     PresetExistsError,
@@ -87,6 +88,10 @@ class HealthResponse(BaseModel):
     api_version: str
 
 
+class WorkspaceStateUpdateRequest(BaseModel):
+    values: dict[str, Any]
+
+
 def _default_workspace_root() -> Path:
     configured = os.environ.get("FIZGIG_WORKSPACE_ROOT")
     if configured:
@@ -102,6 +107,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     root = Path(workspace_root or _default_workspace_root()).expanduser().resolve()
     dataset = DatasetService(root)
     image_prep = ImagePrepService(root)
+    workspace_state = WorkspaceStateService(root)
     presets = PresetRepository(root)
 
     app = FastAPI(
@@ -113,6 +119,17 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     @app.get("/api/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(status="ok", fizgig_version=FIZGIG_VERSION, api_version="0.1.0")
+
+    @app.get("/api/workspace/state")
+    def get_workspace_state() -> dict[str, Any]:
+        return {"values": workspace_state.load()}
+
+    @app.patch("/api/workspace/state")
+    def update_workspace_state(request: WorkspaceStateUpdateRequest) -> dict[str, Any]:
+        try:
+            return {"values": workspace_state.update(request.values)}
+        except WorkspaceStateError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/datasets/scan", response_model=DatasetScanResponse)
     def scan_dataset(

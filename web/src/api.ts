@@ -29,6 +29,17 @@ export function scanDataset(folder: string): Promise<DatasetScan> {
   return request<DatasetScan>(`/api/datasets/scan?${params}`);
 }
 
+export function loadWorkspaceState(): Promise<{ values: Record<string, unknown> }> {
+  return request("/api/workspace/state");
+}
+
+export function updateWorkspaceState(values: Record<string, unknown>) {
+  return request<{ values: Record<string, unknown> }>("/api/workspace/state", {
+    method: "PATCH",
+    body: JSON.stringify({ values }),
+  });
+}
+
 export function importDataset(folder: string, files: File[]) {
   const form = new FormData();
   form.append("folder", folder);

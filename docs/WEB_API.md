@@ -22,6 +22,7 @@ in Modal. The default is only intended for local source-checkout development.
 Initial endpoints:
 
 - `GET /api/health`
+- `GET/PATCH /api/workspace/state`
 - `GET /api/datasets/scan?folder=dataset/example`
 - `GET /api/datasets/caption?item=dataset/example/photo.png`
 - `PUT /api/datasets/caption`

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { importDataset, readCaption, removeDatasetItem, resizeOnly, scanDataset, writeCaption } from "./api";
+import { importDataset, loadWorkspaceState, readCaption, removeDatasetItem, resizeOnly, scanDataset, updateWorkspaceState, writeCaption } from "./api";
 import type { ImagePrepResult } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
@@ -39,6 +39,7 @@ function App() {
     setLoading(true);
     setError("");
     try {
+      void updateWorkspaceState({ dataset_folder: folder.trim() }).catch(() => undefined);
       const result = await scanDataset(folder.trim());
       setItems(result.items);
       setSelected(null);
@@ -66,6 +67,7 @@ function App() {
     setLoading(true);
     setError("");
     try {
+      void updateWorkspaceState({ dataset_folder: destination }).catch(() => undefined);
       const result = await importDataset(destination, importableFiles);
       const scanResult = await scanDataset(destination);
       setItems(scanResult.items);
@@ -102,6 +104,11 @@ function App() {
     setLoading(true);
     setError("");
     try {
+      void updateWorkspaceState({
+        dataset_folder: folder.trim(),
+        prep_megapixels: prepTargetMegapixels,
+        prep_replace_originals: prepReplaceOriginals,
+      }).catch(() => undefined);
       const result = await resizeOnly(folder.trim(), target, prepReplaceOriginals);
       setPrepResult(result);
       const scanResult = await scanDataset(folder.trim());
@@ -145,6 +152,22 @@ function App() {
       setError(cause instanceof Error ? cause.message : "Unable to remove item");
     }
   }
+
+  useEffect(() => {
+    void loadWorkspaceState()
+      .then((result) => {
+        const savedFolder = result.values.dataset_folder;
+        if (typeof savedFolder === "string" && savedFolder.trim()) setFolder(savedFolder);
+        const savedMegapixels = result.values.prep_megapixels;
+        if (typeof savedMegapixels === "string") setPrepTargetMegapixels(savedMegapixels);
+        if (typeof result.values.prep_replace_originals === "boolean") {
+          setPrepReplaceOriginals(result.values.prep_replace_originals);
+        }
+      })
+      .catch(() => {
+        // The UI remains usable with defaults while an older API is restarting.
+      });
+  }, []);
 
   useEffect(() => {
     if (active === "captions" && items.length === 0) void scan();
