@@ -13,6 +13,7 @@ from typing import Any
 
 try:
     from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+    from fastapi.responses import PlainTextResponse
     from pydantic import BaseModel, Field
 except ImportError as exc:  # pragma: no cover - gives a useful startup error
     raise RuntimeError(
@@ -24,6 +25,7 @@ from fizgig import __version__ as FIZGIG_VERSION
 from fizgig.app.dataset import DatasetService
 from fizgig.app.image_prep import ImagePrepService
 from fizgig.app.jobs import JobService
+from fizgig.app.training import TrainingCommandService, TrainingLaunchError, run_training_job
 from fizgig.app.workspace import WorkspaceStateError, WorkspaceStateService
 from fizgig.app.training_config import (
     DatasetConfigRequest,
@@ -94,6 +96,50 @@ class TrainingDatasetConfigRequest(BaseModel):
     cache_root: str = Field(default="cache", min_length=1)
 
 
+class TrainingLaunchRequest(BaseModel):
+    architecture: str = Field(min_length=1)
+    dataset_config: str = Field(min_length=1)
+    dit: str = Field(min_length=1)
+    output_dir: str = Field(default="output_loras", min_length=1)
+    output_name: str = Field(default="fizgig_lora", min_length=1)
+    vae: str = ""
+    text_encoder: str = ""
+    network_dim: int = Field(default=16, ge=1, le=65536)
+    network_alpha: float = Field(default=16, gt=0)
+    learning_rate: float = Field(default=1e-4, gt=0)
+    max_train_epochs: int = Field(default=10, ge=1)
+    save_every_n_epochs: int = Field(default=0, ge=0)
+    seed: int = 42
+    blocks_to_swap: int | str = 0
+    optimizer_type: str = "adamw8bit"
+    optimizer_args: str = ""
+    gradient_checkpointing: bool = True
+    gradient_accumulation_steps: int = Field(default=1, ge=1)
+    max_grad_norm: float = Field(default=1.0, ge=0)
+    network_type: str = "lora"
+    lokr_factor: int = Field(default=8, ge=1)
+    lora_lr_ratio: int = Field(default=1, ge=1)
+    save_state: bool = True
+    save_state_on_train_end: bool = True
+    keep_last_n_states: int = Field(default=2, ge=1)
+    resume: str = ""
+    quantize_4bit: bool = False
+    quant_int8: str = ""
+    base_quant: str = "auto"
+    use_fp8_base: bool = True
+    discrete_flow_shift: float = 2.5
+    sample_prompts: str = ""
+    sample_every_n_epochs: int = Field(default=0, ge=0)
+    sample_at_first: bool = False
+    sample_width: int = Field(default=512, ge=1)
+    sample_height: int = Field(default=512, ge=1)
+    sample_steps: int = Field(default=8, ge=1)
+    sample_cfg_scale: float = Field(default=1.0, gt=0)
+    sample_negative: str = ""
+    sample_seed: int = 42
+    extra_args: list[str] = Field(default_factory=list)
+
+
 class JobCreateRequest(BaseModel):
     kind: str = Field(min_length=1)
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -133,6 +179,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     training_config = TrainingConfigService(root)
     jobs = JobService(root)
     presets = PresetRepository(root)
+    training_commands = TrainingCommandService(root)
 
     app = FastAPI(
         title="Fizgig Browser API",
@@ -241,6 +288,31 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
             "content": content,
         }
 
+    @app.post("/api/training/command-preview")
+    def preview_training_command(request: TrainingLaunchRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            launch = training_commands.from_mapping(values)
+            return training_commands.preview(launch)
+        except TrainingLaunchError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/training/start")
+    def start_training(request: TrainingLaunchRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            launch = training_commands.from_mapping(values)
+            preview = training_commands.preview(launch)
+        except TrainingLaunchError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        payload = {"request": values, "command": preview["command"]}
+
+        def run(context, job_payload):
+            return run_training_job(context, job_payload, training_commands)
+
+        return jobs.create("training.run", payload, run).as_dict()
+
     @app.get("/api/jobs")
     def list_jobs(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
         return {"jobs": [record.as_dict() for record in jobs.list(limit=limit)]}
@@ -261,6 +333,19 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/api/jobs/{job_id}/log", response_class=PlainTextResponse)
+    def read_job_log(job_id: str, max_chars: int = Query(default=100_000, ge=1, le=1_000_000)) -> str:
+        try:
+            jobs.get(job_id)
+            log_path = root / ".fizgig" / "jobs" / f"{job_id}.log"
+            if not log_path.is_file():
+                raise HTTPException(status_code=404, detail="job log not found")
+            return log_path.read_text(encoding="utf-8", errors="replace")[-max_chars:]
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except OSError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post("/api/jobs")

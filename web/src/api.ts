@@ -84,6 +84,57 @@ export interface TrainingConfigResult {
   content: string;
 }
 
+export interface TrainingLaunchValues {
+  architecture: string;
+  dataset_config: string;
+  dit: string;
+  output_dir: string;
+  output_name: string;
+  vae: string;
+  text_encoder: string;
+  network_dim: number;
+  network_alpha: number;
+  learning_rate: number;
+  max_train_epochs: number;
+  save_every_n_epochs: number;
+  blocks_to_swap: number | string;
+  gradient_checkpointing: boolean;
+}
+
+export interface TrainingCommandPreview {
+  architecture: string;
+  command: string[];
+  shell_command: string;
+  working_directory: string;
+  execution_ready: boolean;
+}
+
+export function previewTrainingCommand(values: TrainingLaunchValues) {
+  return request<TrainingCommandPreview>("/api/training/command-preview", {
+    method: "POST",
+    body: JSON.stringify({
+      ...values,
+      seed: 42,
+      optimizer_type: "adamw8bit",
+      save_state: true,
+      save_state_on_train_end: true,
+    }),
+  });
+}
+
+export function startTrainingJob(values: TrainingLaunchValues) {
+  return request<JobRecord>("/api/training/start", {
+    method: "POST",
+    body: JSON.stringify({
+      ...values,
+      seed: 42,
+      optimizer_type: "adamw8bit",
+      save_state: true,
+      save_state_on_train_end: true,
+    }),
+  });
+}
+
 export function writeTrainingDatasetConfig(values: {
   name: string;
   folder: string;

@@ -30,8 +30,11 @@ Initial endpoints:
 - `POST /api/datasets/import` (browser folder upload)
 - `POST /api/image-prep/resize-only`
 - `POST /api/training/dataset-config`
+- `POST /api/training/command-preview` (validate and preview a Klein/Krea 2/MiniMax command)
+- `POST /api/training/start` (start a persistent model-training job)
 - `GET/POST /api/jobs`
 - `GET /api/jobs/{id}`
+- `GET /api/jobs/{id}/log`
 - `POST /api/jobs/{id}/cancel`
 - `POST /api/datasets/find-replace`
 - `GET/PUT/DELETE /api/presets/{architecture}/{name}`

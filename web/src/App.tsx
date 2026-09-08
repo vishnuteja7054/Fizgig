@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { deletePreset, getJob, importDataset, listPresets, loadPreset, loadWorkspaceState, readCaption, removeDatasetItem, savePreset, scanDataset, startResizeOnlyJob, updateWorkspaceState, writeCaption, writeTrainingDatasetConfig } from "./api";
-import type { ImagePrepResult, TrainingConfigResult } from "./api";
+import { deletePreset, getJob, importDataset, listPresets, loadPreset, loadWorkspaceState, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeTrainingDatasetConfig } from "./api";
+import type { ImagePrepResult, TrainingCommandPreview, TrainingConfigResult } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
 const sections: Array<{ key: SectionKey; label: string; icon: string; group?: string }> = [
@@ -35,6 +35,16 @@ function App() {
   const [trainingNoUpscale, setTrainingNoUpscale] = useState(true);
   const [trainingConfigResult, setTrainingConfigResult] = useState<TrainingConfigResult | null>(null);
   const [trainingArchitecture, setTrainingArchitecture] = useState("Flux 2 Klein Base 9B");
+  const [trainingDit, setTrainingDit] = useState("");
+  const [trainingVae, setTrainingVae] = useState("");
+  const [trainingTextEncoder, setTrainingTextEncoder] = useState("");
+  const [trainingOutputDir, setTrainingOutputDir] = useState("output_loras");
+  const [trainingOutputName, setTrainingOutputName] = useState("fizgig_lora");
+  const [trainingEpochs, setTrainingEpochs] = useState("10");
+  const [trainingRank, setTrainingRank] = useState("16");
+  const [trainingLearningRate, setTrainingLearningRate] = useState("0.0001");
+  const [trainingBlocksSwap, setTrainingBlocksSwap] = useState("0");
+  const [trainingCommand, setTrainingCommand] = useState<TrainingCommandPreview | null>(null);
   const [presetNames, setPresetNames] = useState<string[]>([]);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [presetName, setPresetName] = useState("");
@@ -176,6 +186,72 @@ function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to save training config");
       setMessage("Training config failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function launchValues() {
+    const config = trainingConfigResult?.config_relative_path;
+    if (!config) throw new Error("Save the dataset config before preparing a training launch.");
+    const epochs = Number(trainingEpochs);
+    const rank = Number(trainingRank);
+    const learningRate = Number(trainingLearningRate);
+    if (!trainingDit.trim() || !Number.isInteger(epochs) || epochs < 1 || !Number.isInteger(rank) || rank < 1 || !Number.isFinite(learningRate) || learningRate <= 0) {
+      throw new Error("Enter a DiT path and valid epochs, rank, and learning rate.");
+    }
+    const blocks = trainingArchitecture === "MiniMax H3" && trainingBlocksSwap.trim() === "auto" ? "auto" : Number(trainingBlocksSwap);
+    if (blocks !== "auto" && (!Number.isInteger(blocks) || blocks < 0)) throw new Error("Blocks to swap must be a non-negative number or auto.");
+    return {
+      architecture: trainingArchitecture,
+      dataset_config: config,
+      dit: trainingDit.trim(),
+      output_dir: trainingOutputDir.trim() || "output_loras",
+      output_name: trainingOutputName.trim() || "fizgig_lora",
+      vae: trainingVae.trim(),
+      text_encoder: trainingTextEncoder.trim(),
+      network_dim: rank,
+      network_alpha: rank,
+      learning_rate: learningRate,
+      max_train_epochs: epochs,
+      save_every_n_epochs: 0,
+      blocks_to_swap: blocks,
+      gradient_checkpointing: true,
+    } as const;
+  }
+
+  async function previewTraining() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await previewTrainingCommand(launchValues());
+      setTrainingCommand(result);
+      setMessage("Training command validated; nothing has started");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to validate training command");
+      setMessage("Training validation failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function startTraining() {
+    if (!window.confirm("Start the model training job now? This will use the configured worker/GPU.")) return;
+    setLoading(true);
+    setError("");
+    try {
+      const started = await startTrainingJob(launchValues());
+      let job = started;
+      while (["queued", "starting", "running", "cancel_requested"].includes(job.status)) {
+        setMessage(`${job.message} · ${Math.round(job.progress)}%`);
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        job = await getJob(started.id);
+      }
+      if (job.status !== "completed") throw new Error(job.error || `Training ${job.status}`);
+      setMessage("Training completed; see the job log in .fizgig/jobs/");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to start training");
+      setMessage("Training failed");
     } finally {
       setLoading(false);
     }
@@ -421,6 +497,27 @@ function App() {
               setPresetJson={setPresetJson}
               onSavePreset={persistPreset}
               onDeletePreset={removePreset}
+              dit={trainingDit}
+              setDit={setTrainingDit}
+              vae={trainingVae}
+              setVae={setTrainingVae}
+              textEncoder={trainingTextEncoder}
+              setTextEncoder={setTrainingTextEncoder}
+              outputDir={trainingOutputDir}
+              setOutputDir={setTrainingOutputDir}
+              outputName={trainingOutputName}
+              setOutputName={setTrainingOutputName}
+              epochs={trainingEpochs}
+              setEpochs={setTrainingEpochs}
+              rank={trainingRank}
+              setRank={setTrainingRank}
+              learningRate={trainingLearningRate}
+              setLearningRate={setTrainingLearningRate}
+              blocksSwap={trainingBlocksSwap}
+              setBlocksSwap={setTrainingBlocksSwap}
+              command={trainingCommand}
+              onPreview={previewTraining}
+              onStart={startTraining}
             />
           )}
           {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && <ComingSoonPage section={active} />}
@@ -576,6 +673,27 @@ function TrainingPage(props: {
   setPresetJson: (value: string) => void;
   onSavePreset: () => void;
   onDeletePreset: () => void;
+  dit: string;
+  setDit: (value: string) => void;
+  vae: string;
+  setVae: (value: string) => void;
+  textEncoder: string;
+  setTextEncoder: (value: string) => void;
+  outputDir: string;
+  setOutputDir: (value: string) => void;
+  outputName: string;
+  setOutputName: (value: string) => void;
+  epochs: string;
+  setEpochs: (value: string) => void;
+  rank: string;
+  setRank: (value: string) => void;
+  learningRate: string;
+  setLearningRate: (value: string) => void;
+  blocksSwap: string;
+  setBlocksSwap: (value: string) => void;
+  command: TrainingCommandPreview | null;
+  onPreview: () => void;
+  onStart: () => void;
 }) {
   return <>
     <section className="card prep-banner training-banner">
@@ -591,7 +709,23 @@ function TrainingPage(props: {
         <label className="prep-control"><span>Batch size</span><input type="number" min="1" max="1024" value={props.batchSize} onChange={(event) => props.setBatchSize(event.target.value)} /></label>
       </div>
       <div className="training-checks"><label><input type="checkbox" checked={props.enableBucket} onChange={(event) => props.setEnableBucket(event.target.checked)} /> Enable resolution buckets</label><label><input type="checkbox" checked={props.noUpscale} onChange={(event) => props.setNoUpscale(event.target.checked)} /> Never upscale images</label></div>
-      <div className="prep-actions"><button className="button primary" disabled={props.loading || !props.folder} onClick={props.onSave}>{props.loading ? "Saving…" : "Save dataset config"}<span>✓</span></button><span className="helper-text">Dataset folder is selected on Start. Model paths, presets, and job execution will be connected in the next training slices.</span></div>
+      <div className="prep-actions"><button className="button primary" disabled={props.loading || !props.folder} onClick={props.onSave}>{props.loading ? "Saving…" : "Save dataset config"}<span>✓</span></button><span className="helper-text">Dataset folder is selected on Start. Save this contract before validating a model launch.</span></div>
+    </section>
+    <section className="card prep-options">
+      <div className="section-heading"><div><div className="section-kicker">TRAINING LAUNCH</div><h3>Connect model files and runtime settings</h3></div><span className="pill">COMMAND PREVIEW FIRST</span></div>
+      <div className="training-form-grid">
+        <label className="prep-control"><span>DiT model path</span><input value={props.dit} onChange={(event) => props.setDit(event.target.value)} placeholder="/models/base.safetensors" /></label>
+        <label className="prep-control"><span>VAE path <small>(required for Klein)</small></span><input value={props.vae} onChange={(event) => props.setVae(event.target.value)} placeholder="/models/vae.safetensors" /></label>
+        <label className="prep-control"><span>Text encoder path <small>(samples)</small></span><input value={props.textEncoder} onChange={(event) => props.setTextEncoder(event.target.value)} placeholder="/models/text_encoder.safetensors" /></label>
+        <label className="prep-control"><span>Output directory</span><input value={props.outputDir} onChange={(event) => props.setOutputDir(event.target.value)} placeholder="output_loras" /></label>
+        <label className="prep-control"><span>Output name</span><input value={props.outputName} onChange={(event) => props.setOutputName(event.target.value)} /></label>
+        <label className="prep-control"><span>Epochs</span><input type="number" min="1" value={props.epochs} onChange={(event) => props.setEpochs(event.target.value)} /></label>
+        <label className="prep-control"><span>LoRA rank</span><input type="number" min="1" value={props.rank} onChange={(event) => props.setRank(event.target.value)} /></label>
+        <label className="prep-control"><span>Learning rate</span><input value={props.learningRate} onChange={(event) => props.setLearningRate(event.target.value)} /></label>
+        <label className="prep-control"><span>Blocks to swap <small>(MiniMax accepts auto)</small></span><input value={props.blocksSwap} onChange={(event) => props.setBlocksSwap(event.target.value)} /></label>
+      </div>
+      <div className="prep-actions"><button className="button ghost" disabled={props.loading} onClick={props.onPreview}>Validate command</button><button className="button primary" disabled={props.loading || !props.command} onClick={props.onStart}>Start training <span>→</span></button><span className="helper-text">Validation only reads paths and builds argv. Start is the explicit model-job action.</span></div>
+      {props.command && <div className="command-preview"><div className="section-kicker">VALIDATED COMMAND</div><pre>{props.command.shell_command}</pre><small>Working directory: {props.command.working_directory}</small></div>}
     </section>
     <section className="card preset-workspace">
       <div className="section-heading"><div><div className="section-kicker">CUSTOM PRESETS / {props.architecture}</div><h3>Save and restore training values</h3></div><span className="pill">DESKTOP COMPATIBLE</span></div>
