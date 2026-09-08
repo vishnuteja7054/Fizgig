@@ -26,6 +26,8 @@ Initial endpoints:
 - `GET /api/datasets/caption?item=dataset/example/photo.png`
 - `PUT /api/datasets/caption`
 - `POST /api/datasets/remove`
+- `POST /api/datasets/import` (browser folder upload)
+- `POST /api/image-prep/resize-only`
 - `POST /api/datasets/find-replace`
 - `GET/PUT/DELETE /api/presets/{architecture}/{name}`
 - `GET /api/presets/{architecture}`

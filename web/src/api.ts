@@ -39,6 +39,35 @@ export function importDataset(folder: string, files: File[]) {
   );
 }
 
+export interface ImagePrepResult {
+  folder: string;
+  mode: "resize_only";
+  target_megapixels: number;
+  target_area: number;
+  converted: number;
+  skipped: number;
+  errors: number;
+  files: Array<{
+    source_relative_path: string;
+    output_relative_path: string | null;
+    status: "converted" | "skipped" | "error";
+    original_size: [number, number] | null;
+    output_size: [number, number] | null;
+    detail: string;
+  }>;
+}
+
+export function resizeOnly(folder: string, targetMegapixels: number, replaceOriginals: boolean) {
+  return request<ImagePrepResult>("/api/image-prep/resize-only", {
+    method: "POST",
+    body: JSON.stringify({
+      folder,
+      target_megapixels: targetMegapixels,
+      replace_originals: replaceOriginals,
+    }),
+  });
+}
+
 export function readCaption(item: string): Promise<{ item: string; text: string }> {
   const params = new URLSearchParams({ item });
   return request(`/api/datasets/caption?${params}`);

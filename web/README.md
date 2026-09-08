@@ -21,6 +21,11 @@ Do not run the API command from inside `web/`: the Python package is in the
 repository-level `src/` directory, not `web/src/`. Using `python -m uvicorn`
 also ensures the server comes from the active virtual environment.
 
+The Start page can import a local browser-selected folder into the workspace.
+The Image Prep page currently supports the desktop-compatible `Resize Only`
+mode; face-crop and Gizmo workflows are intentionally separate follow-up
+worker slices.
+
 In another terminal:
 
 ```bash

@@ -22,6 +22,7 @@ except ImportError as exc:  # pragma: no cover - gives a useful startup error
 
 from fizgig import __version__ as FIZGIG_VERSION
 from fizgig.app.dataset import DatasetService
+from fizgig.app.image_prep import ImagePrepService
 from fizgig.app.presets import (
     PresetError,
     PresetExistsError,
@@ -69,6 +70,12 @@ class FindReplaceRequest(BaseModel):
     apply: bool = False
 
 
+class ImagePrepRequest(BaseModel):
+    folder: str = Field(min_length=1)
+    target_megapixels: float = Field(default=1.0, gt=0, le=100)
+    replace_originals: bool = False
+
+
 class PresetSaveRequest(BaseModel):
     values: dict[str, Any]
     overwrite: bool = False
@@ -94,6 +101,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
 
     root = Path(workspace_root or _default_workspace_root()).expanduser().resolve()
     dataset = DatasetService(root)
+    image_prep = ImagePrepService(root)
     presets = PresetRepository(root)
 
     app = FastAPI(
@@ -168,6 +176,17 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"media_relative_path": media, "caption_relative_path": caption}
+
+    @app.post("/api/image-prep/resize-only")
+    def resize_only(request: ImagePrepRequest) -> dict[str, Any]:
+        try:
+            return image_prep.resize_only(
+                request.folder,
+                request.target_megapixels,
+                replace_originals=request.replace_originals,
+            ).as_dict()
+        except (ValueError, NotADirectoryError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/datasets/find-replace")
     def find_replace(request: FindReplaceRequest) -> dict[str, Any]:

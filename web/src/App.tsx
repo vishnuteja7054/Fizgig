@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { importDataset, readCaption, removeDatasetItem, scanDataset, writeCaption } from "./api";
+import { importDataset, readCaption, removeDatasetItem, resizeOnly, scanDataset, writeCaption } from "./api";
+import type { ImagePrepResult } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
 const sections: Array<{ key: SectionKey; label: string; icon: string; group?: string }> = [
@@ -24,6 +25,9 @@ function App() {
   const [items, setItems] = useState<DatasetItem[]>([]);
   const [selected, setSelected] = useState<DatasetItem | null>(null);
   const [caption, setCaption] = useState("");
+  const [prepTargetMegapixels, setPrepTargetMegapixels] = useState("1.0");
+  const [prepReplaceOriginals, setPrepReplaceOriginals] = useState(false);
+  const [prepResult, setPrepResult] = useState<ImagePrepResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("Ready");
   const [error, setError] = useState("");
@@ -86,6 +90,30 @@ function App() {
     } catch (cause) {
       setCaption("");
       setError(cause instanceof Error ? cause.message : "Unable to read caption");
+    }
+  }
+
+  async function prepareResizeOnly() {
+    const target = Number(prepTargetMegapixels);
+    if (!folder.trim() || !Number.isFinite(target) || target <= 0) {
+      setError("Choose a dataset folder and a valid target size.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const result = await resizeOnly(folder.trim(), target, prepReplaceOriginals);
+      setPrepResult(result);
+      const scanResult = await scanDataset(folder.trim());
+      setItems(scanResult.items);
+      setSelected(null);
+      setCaption("");
+      setMessage(`Prepared ${result.converted} image${result.converted === 1 ? "" : "s"}; ${result.skipped} skipped, ${result.errors} errors`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to prepare images");
+      setMessage("Image preparation failed");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -207,7 +235,19 @@ function App() {
               onRemove={removeSelected}
             />
           )}
-          {active !== "start" && active !== "captions" && <ComingSoonPage section={active} />}
+          {active === "prep" && (
+            <ImagePrepPage
+              folder={folder}
+              targetMegapixels={prepTargetMegapixels}
+              setTargetMegapixels={setPrepTargetMegapixels}
+              replaceOriginals={prepReplaceOriginals}
+              setReplaceOriginals={setPrepReplaceOriginals}
+              loading={loading}
+              result={prepResult}
+              onRun={prepareResizeOnly}
+            />
+          )}
+          {active !== "start" && active !== "captions" && active !== "prep" && <ComingSoonPage section={active} />}
         </div>
       </main>
     </div>
@@ -302,6 +342,36 @@ function CaptionsPage(props: {
       </section>
     </div>
   );
+}
+
+function ImagePrepPage(props: {
+  folder: string;
+  targetMegapixels: string;
+  setTargetMegapixels: (value: string) => void;
+  replaceOriginals: boolean;
+  setReplaceOriginals: (value: boolean) => void;
+  loading: boolean;
+  result: ImagePrepResult | null;
+  onRun: () => void;
+}) {
+  return <>
+    <section className="card prep-banner">
+      <div><div className="section-kicker">IMAGE PREP / RESIZE ONLY</div><h2>Prepare images for training</h2><p>Convert the selected workspace folder to PNG while preserving aspect ratio and matching Fizgig’s 16-pixel training grid.</p></div>
+      <span className="pill accent">NO MODEL REQUIRED</span>
+    </section>
+    <section className="card prep-options">
+      <div className="section-heading"><div><div className="section-kicker">CURRENT FOLDER</div><h3>{props.folder || "No folder selected"}</h3></div><span className="pill">SAFE OUTPUTS</span></div>
+      <div className="prep-control-grid">
+        <label className="prep-control"><span>Target megapixels</span><select value={props.targetMegapixels} onChange={(event) => props.setTargetMegapixels(event.target.value)}><option value="0.25">0.25 MP</option><option value="0.5">0.5 MP</option><option value="0.75">0.75 MP</option><option value="1.0">1.0 MP</option><option value="1.5">1.5 MP</option><option value="2.0">2.0 MP</option><option value="2.4">2.4 MP</option><option value="3.0">3.0 MP</option><option value="4.2">4.2 MP</option></select></label>
+        <label className="prep-check"><input type="checkbox" checked={props.replaceOriginals} onChange={(event) => props.setReplaceOriginals(event.target.checked)} /><span><strong>Replace originals</strong><small>Destructive: original files will not be moved to <code>originals/</code>.</small></span></label>
+      </div>
+      <div className="prep-actions"><button className="button primary" disabled={props.loading || !props.folder} onClick={props.onRun}>{props.loading ? "Preparing…" : "Prepare images"}<span>→</span></button><span className="helper-text">Resize only is available now. Face crop modes will use a separate worker once face-tool dependencies are exposed.</span></div>
+    </section>
+    <section className="card table-card">
+      <div className="section-heading"><div><div className="section-kicker">PREPARATION REPORT</div><h3>{props.result ? `${props.result.converted} converted · ${props.result.skipped} skipped · ${props.result.errors} errors` : "No preparation run yet"}</h3></div></div>
+      {!props.result ? <EmptyState text="Choose a folder on Start, then run Resize only here." /> : <div className="table-wrap"><table><thead><tr><th>Source</th><th>Status</th><th>Output</th><th>Size</th></tr></thead><tbody>{props.result.files.map((item) => <tr key={item.source_relative_path}><td>{item.source_relative_path}</td><td><span className={`caption-state ${item.status === "error" ? "missing" : "ready"}`}>{item.status}</span></td><td>{item.output_relative_path ?? item.detail}</td><td>{item.output_size ? `${item.output_size[0]} × ${item.output_size[1]}` : "—"}</td></tr>)}</tbody></table></div>}
+    </section>
+  </>;
 }
 
 function DatasetTable(props: { items: DatasetItem[]; onOpenCaptions: () => void; onSelect: (item: DatasetItem) => void; onRemove: (item: DatasetItem) => void }) {
