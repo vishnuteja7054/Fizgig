@@ -7,12 +7,19 @@ GPU-session contracts exist.
 
 ## Development
 
-From the repository root:
+Run the API commands from the repository root (the directory containing
+`requirements-web.txt` and `src/`):
 
 ```bash
+cd /path/to/Fizgig
+source web/venv/bin/activate  # or activate your existing project venv
 python -m pip install -r requirements-web.txt
-PYTHONPATH=src uvicorn fizgig.web.app:app --reload --port 8000
+python -m uvicorn --app-dir src fizgig.web.app:app --reload --port 8000
 ```
+
+Do not run the API command from inside `web/`: the Python package is in the
+repository-level `src/` directory, not `web/src/`. Using `python -m uvicorn`
+also ensures the server comes from the active virtual environment.
 
 In another terminal:
 
