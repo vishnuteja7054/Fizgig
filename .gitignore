@@ -90,6 +90,13 @@ gpu_detect_debug.log
 # Leftover portable-Python cache from older ROCm installer attempts
 python312/
 
+# Browser frontend build artifacts and installed dependencies
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+
 
 # Internal-only: debugging test harnesses + template setup notes (local, never public)
 tests/
