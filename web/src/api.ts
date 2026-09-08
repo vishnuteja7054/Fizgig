@@ -3,12 +3,13 @@ import type { DatasetItem, DatasetScan } from "./types";
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!(init?.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
@@ -26,6 +27,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export function scanDataset(folder: string): Promise<DatasetScan> {
   const params = new URLSearchParams({ folder });
   return request<DatasetScan>(`/api/datasets/scan?${params}`);
+}
+
+export function importDataset(folder: string, files: File[]) {
+  const form = new FormData();
+  form.append("folder", folder);
+  files.forEach((file) => form.append("files", file, file.name));
+  return request<{ folder: string; imported: string[]; skipped: string[] }>(
+    "/api/datasets/import",
+    { method: "POST", body: form },
+  );
 }
 
 export function readCaption(item: string): Promise<{ item: string; text: string }> {

@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 
 from fizgig.app.dataset import DatasetService
@@ -38,6 +39,17 @@ class DatasetServiceTests(unittest.TestCase):
             self.assertEqual(service.read_caption("set/photo.png"), "a portrait")
             with self.assertRaises(ValueError):
                 service.write_caption("set/photo.png", "  ")
+
+    def test_import_file_copies_supported_uploads_without_overwriting(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = DatasetService(directory)
+            imported = service.import_file("set", "local/photo.png", BytesIO(b"image"))
+            self.assertEqual(imported, "set/photo.png")
+            self.assertEqual((Path(directory) / "set" / "photo.png").read_bytes(), b"image")
+            with self.assertRaises(FileExistsError):
+                service.import_file("set", "photo.png", BytesIO(b"replacement"))
+            with self.assertRaises(ValueError):
+                service.import_file("set", "photo.exe", BytesIO(b"bad"))
 
     def test_move_to_removed_preserves_media_and_caption(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

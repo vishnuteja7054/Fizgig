@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { readCaption, removeDatasetItem, scanDataset, writeCaption } from "./api";
+import type { ChangeEvent } from "react";
+import { importDataset, readCaption, removeDatasetItem, scanDataset, writeCaption } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
 const sections: Array<{ key: SectionKey; label: string; icon: string; group?: string }> = [
@@ -42,6 +43,35 @@ function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to scan dataset");
       setMessage("Scan failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function importSelectedFolder(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    const importableFiles = selectedFiles.filter((file) =>
+      /\.(jpg|jpeg|png|gif|bmp|webp|tiff?|mp4|wav|mp3|flac|m4a|txt)$/i.test(file.name),
+    );
+    if (importableFiles.length === 0) {
+      setError("The selected folder contains no supported media or caption files.");
+      return;
+    }
+    const destination = folder.trim() || "dataset";
+    setLoading(true);
+    setError("");
+    try {
+      const result = await importDataset(destination, importableFiles);
+      const scanResult = await scanDataset(destination);
+      setItems(scanResult.items);
+      setSelected(null);
+      setCaption("");
+      const skippedMessage = result.skipped.length ? `; ${result.skipped.length} already existed/skipped` : "";
+      setMessage(`Imported ${result.imported.length} file${result.imported.length === 1 ? "" : "s"} into ${destination}${skippedMessage}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to import folder");
+      setMessage("Import failed");
     } finally {
       setLoading(false);
     }
@@ -158,6 +188,7 @@ function App() {
               missingCount={missingCount}
               loading={loading}
               onScan={scan}
+              onImport={importSelectedFolder}
               onOpenCaptions={() => setActive("captions")}
               onSelect={selectItem}
               onRemove={removeSelected}
@@ -191,6 +222,7 @@ function StartPage(props: {
   missingCount: number;
   loading: boolean;
   onScan: () => void;
+  onImport: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenCaptions: () => void;
   onSelect: (item: DatasetItem) => void;
   onRemove: (item: DatasetItem) => void;
@@ -212,7 +244,21 @@ function StartPage(props: {
           <label className="path-field"><span className="field-icon">⌁</span><input value={props.folder} onChange={(event) => props.setFolder(event.target.value)} onKeyDown={(event) => event.key === "Enter" && props.onScan()} placeholder="dataset/my-subject" /><span className="field-suffix">workspace-relative</span></label>
           <button className="button primary" disabled={props.loading || !props.folder.trim()} onClick={props.onScan}>{props.loading ? "Scanning…" : "Scan folder"}<span>→</span></button>
         </div>
-        <div className="helper-text">Use a path inside the configured Fizgig workspace. Subfolders such as <code>removed/</code> are intentionally not scanned.</div>
+        <div className="import-row">
+          <label className="button ghost folder-picker-button">
+            {props.loading ? "Importing…" : "Choose local folder"}<span>＋</span>
+            <input
+              className="folder-picker-input"
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.gif,.bmp,.webp,.tif,.tiff,.mp4,.wav,.mp3,.flac,.m4a,.txt"
+              onChange={props.onImport}
+              {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+            />
+          </label>
+          <div className="helper-text">Choose a folder from this PC; supported files are copied into the workspace path above. Existing files are never overwritten.</div>
+        </div>
+        <div className="helper-text">Or type a path already inside the configured Fizgig workspace. Subfolders such as <code>removed/</code> are intentionally not scanned.</div>
       </section>
 
       <div className="metric-grid">

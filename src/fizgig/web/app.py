@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from fastapi import FastAPI, HTTPException, Query
+    from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
     from pydantic import BaseModel, Field
 except ImportError as exc:  # pragma: no cover - gives a useful startup error
     raise RuntimeError(
@@ -40,6 +40,12 @@ class DatasetItemResponse(BaseModel):
 class DatasetScanResponse(BaseModel):
     folder: str
     items: list[DatasetItemResponse]
+
+
+class DatasetImportResponse(BaseModel):
+    folder: str
+    imported: list[str]
+    skipped: list[str]
 
 
 class CaptionResponse(BaseModel):
@@ -123,6 +129,26 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return CaptionResponse(item=item, text=text)
 
+    @app.post("/api/datasets/import", response_model=DatasetImportResponse)
+    def import_dataset(
+        folder: str = Form(min_length=1),
+        files: list[UploadFile] = File(...),
+    ) -> DatasetImportResponse:
+        imported: list[str] = []
+        skipped: list[str] = []
+        for upload in files:
+            filename = upload.filename or ""
+            if not DatasetService.is_importable_filename(filename):
+                skipped.append(filename or "(unnamed file)")
+                continue
+            try:
+                imported.append(dataset.import_file(folder, filename, upload.file))
+            except FileExistsError:
+                skipped.append(filename)
+            except (ValueError, NotADirectoryError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return DatasetImportResponse(folder=folder, imported=imported, skipped=skipped)
+
     @app.put("/api/datasets/caption", response_model=CaptionResponse)
     def write_caption(request: CaptionUpdateRequest) -> CaptionResponse:
         try:
@@ -193,4 +219,3 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
 
 
 app = create_app()
-

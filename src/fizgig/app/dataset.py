@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass
+from typing import BinaryIO
 from pathlib import Path
 
 from fizgig.app.state import WorkspacePaths
@@ -21,6 +22,7 @@ IMAGE_EXTENSIONS = frozenset({
 })
 VIDEO_EXTENSIONS = frozenset({".mp4"})
 AUDIO_EXTENSIONS = frozenset({".wav", ".mp3", ".flac", ".m4a"})
+IMPORT_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | {".txt"}
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,35 @@ class DatasetService:
         if not caption.is_file():
             return ""
         return caption.read_text(encoding="utf-8-sig").strip()
+
+    @staticmethod
+    def is_importable_filename(filename: str) -> bool:
+        """Return whether a browser upload belongs in a dataset root."""
+
+        return Path(filename).suffix.lower() in IMPORT_EXTENSIONS
+
+    def import_file(self, folder: str | Path, filename: str, source: BinaryIO) -> str:
+        """Copy one browser-selected media/caption file into a dataset folder.
+
+        The browser is allowed to send a filename, never an arbitrary server
+        path. Only the basename is used and existing files are not replaced.
+        """
+
+        if not self.is_importable_filename(filename):
+            raise ValueError(f"unsupported dataset file: {filename}")
+        name = Path(filename).name
+        if not name or name in {".", ".."}:
+            raise ValueError("uploaded filename is invalid")
+        root = self.paths.resolve_child(folder)
+        root.mkdir(parents=True, exist_ok=True)
+        if not root.is_dir():
+            raise NotADirectoryError(f"dataset folder does not exist: {folder}")
+        destination = root / name
+        if destination.exists():
+            raise FileExistsError(f"dataset file already exists: {destination.name}")
+        with destination.open("wb") as handle:
+            shutil.copyfileobj(source, handle)
+        return destination.relative_to(self.paths.root).as_posix()
 
     def write_caption(self, item: str | Path, text: str) -> Path:
         media = self.paths.resolve_child(item)
@@ -169,4 +200,3 @@ class DatasetService:
             if not candidate.exists():
                 return candidate
             index += 1
-
