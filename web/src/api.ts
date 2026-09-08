@@ -100,6 +100,32 @@ export function writeTrainingDatasetConfig(values: {
   });
 }
 
+export function listPresets(architecture: string) {
+  return request<{ architecture: string; names: string[] }>(
+    `/api/presets/${encodeURIComponent(architecture)}`,
+  );
+}
+
+export function loadPreset(architecture: string, name: string) {
+  return request<Record<string, unknown>>(
+    `/api/presets/${encodeURIComponent(architecture)}/${encodeURIComponent(name)}`,
+  );
+}
+
+export function savePreset(architecture: string, name: string, values: Record<string, unknown>, overwrite: boolean) {
+  return request<{ architecture: string; name: string; values: Record<string, unknown> }>(
+    `/api/presets/${encodeURIComponent(architecture)}/${encodeURIComponent(name)}`,
+    { method: "PUT", body: JSON.stringify({ values, overwrite }) },
+  );
+}
+
+export function deletePreset(architecture: string, name: string) {
+  return request<{ architecture: string; name: string }>(
+    `/api/presets/${encodeURIComponent(architecture)}/${encodeURIComponent(name)}`,
+    { method: "DELETE" },
+  );
+}
+
 export function readCaption(item: string): Promise<{ item: string; text: string }> {
   const params = new URLSearchParams({ item });
   return request(`/api/datasets/caption?${params}`);

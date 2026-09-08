@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { importDataset, loadWorkspaceState, readCaption, removeDatasetItem, resizeOnly, scanDataset, updateWorkspaceState, writeCaption, writeTrainingDatasetConfig } from "./api";
+import { deletePreset, importDataset, listPresets, loadPreset, loadWorkspaceState, readCaption, removeDatasetItem, resizeOnly, savePreset, scanDataset, updateWorkspaceState, writeCaption, writeTrainingDatasetConfig } from "./api";
 import type { ImagePrepResult, TrainingConfigResult } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
@@ -34,6 +34,11 @@ function App() {
   const [trainingEnableBucket, setTrainingEnableBucket] = useState(true);
   const [trainingNoUpscale, setTrainingNoUpscale] = useState(true);
   const [trainingConfigResult, setTrainingConfigResult] = useState<TrainingConfigResult | null>(null);
+  const [trainingArchitecture, setTrainingArchitecture] = useState("Flux 2 Klein Base 9B");
+  const [presetNames, setPresetNames] = useState<string[]>([]);
+  const [selectedPreset, setSelectedPreset] = useState("");
+  const [presetName, setPresetName] = useState("");
+  const [presetJson, setPresetJson] = useState("{}\n");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("Ready");
   const [error, setError] = useState("");
@@ -168,6 +173,69 @@ function App() {
     }
   }
 
+  async function refreshPresets(architecture: string) {
+    try {
+      const result = await listPresets(architecture);
+      setPresetNames(result.names);
+      setSelectedPreset(result.names[0] ?? "");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load presets");
+    }
+  }
+
+  async function openPreset(name: string) {
+    setSelectedPreset(name);
+    if (!name) return;
+    try {
+      const values = await loadPreset(trainingArchitecture, name);
+      setPresetName(name);
+      setPresetJson(`${JSON.stringify(values, null, 2)}\n`);
+      setMessage(`Loaded preset ${name}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load preset");
+    }
+  }
+
+  async function persistPreset() {
+    const name = presetName.trim();
+    if (!name) {
+      setError("Enter a preset name first.");
+      return;
+    }
+    let values: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(presetJson);
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("Preset must be a JSON object");
+      values = parsed as Record<string, unknown>;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Preset JSON is invalid");
+      return;
+    }
+    const overwrite = presetNames.includes(name) && window.confirm(`Overwrite preset “${name}”?`);
+    if (presetNames.includes(name) && !overwrite) return;
+    try {
+      await savePreset(trainingArchitecture, name, values, overwrite);
+      await refreshPresets(trainingArchitecture);
+      setSelectedPreset(name);
+      setMessage(`Saved preset ${name}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save preset");
+    }
+  }
+
+  async function removePreset() {
+    if (!selectedPreset || !window.confirm(`Delete preset “${selectedPreset}”?`)) return;
+    try {
+      await deletePreset(trainingArchitecture, selectedPreset);
+      await refreshPresets(trainingArchitecture);
+      setPresetName("");
+      setPresetJson("{}\n");
+      setMessage(`Deleted preset ${selectedPreset}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to delete preset");
+    }
+  }
+
   async function saveSelectedCaption() {
     if (!selected) return;
     setError("");
@@ -212,6 +280,10 @@ function App() {
         // The UI remains usable with defaults while an older API is restarting.
       });
   }, []);
+
+  useEffect(() => {
+    void refreshPresets(trainingArchitecture);
+  }, [trainingArchitecture]);
 
   useEffect(() => {
     if (active === "captions" && items.length === 0) void scan();
@@ -330,6 +402,17 @@ function App() {
               loading={loading}
               result={trainingConfigResult}
               onSave={saveTrainingDatasetConfig}
+              architecture={trainingArchitecture}
+              setArchitecture={setTrainingArchitecture}
+              presetNames={presetNames}
+              selectedPreset={selectedPreset}
+              onSelectPreset={openPreset}
+              presetName={presetName}
+              setPresetName={setPresetName}
+              presetJson={presetJson}
+              setPresetJson={setPresetJson}
+              onSavePreset={persistPreset}
+              onDeletePreset={removePreset}
             />
           )}
           {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && <ComingSoonPage section={active} />}
@@ -474,6 +557,17 @@ function TrainingPage(props: {
   loading: boolean;
   result: TrainingConfigResult | null;
   onSave: () => void;
+  architecture: string;
+  setArchitecture: (value: string) => void;
+  presetNames: string[];
+  selectedPreset: string;
+  onSelectPreset: (value: string) => void;
+  presetName: string;
+  setPresetName: (value: string) => void;
+  presetJson: string;
+  setPresetJson: (value: string) => void;
+  onSavePreset: () => void;
+  onDeletePreset: () => void;
 }) {
   return <>
     <section className="card prep-banner training-banner">
@@ -483,12 +577,20 @@ function TrainingPage(props: {
     <section className="card prep-options">
       <div className="section-heading"><div><div className="section-kicker">DATASET CONFIGURATION</div><h3>{props.folder || "No folder selected"}</h3></div><span className="pill">FIZGIG_TRAIN.TOML</span></div>
       <div className="training-form-grid">
+        <label className="prep-control"><span>Model family</span><select value={props.architecture} onChange={(event) => props.setArchitecture(event.target.value)}><option>Flux 2 Klein Base 9B</option><option>Krea 2</option><option>MiniMax H3</option></select></label>
         <label className="prep-control"><span>Config name</span><input value={props.configName} onChange={(event) => props.setConfigName(event.target.value)} placeholder="Fizgig_train" /></label>
         <label className="prep-control"><span>Target megapixels</span><select value={props.megapixels} onChange={(event) => props.setMegapixels(event.target.value)}><option value="0.25">0.25 MP</option><option value="0.5">0.5 MP</option><option value="0.75">0.75 MP</option><option value="1.0">1.0 MP</option><option value="1.5">1.5 MP</option><option value="2.0">2.0 MP</option></select></label>
         <label className="prep-control"><span>Batch size</span><input type="number" min="1" max="1024" value={props.batchSize} onChange={(event) => props.setBatchSize(event.target.value)} /></label>
       </div>
       <div className="training-checks"><label><input type="checkbox" checked={props.enableBucket} onChange={(event) => props.setEnableBucket(event.target.checked)} /> Enable resolution buckets</label><label><input type="checkbox" checked={props.noUpscale} onChange={(event) => props.setNoUpscale(event.target.checked)} /> Never upscale images</label></div>
       <div className="prep-actions"><button className="button primary" disabled={props.loading || !props.folder} onClick={props.onSave}>{props.loading ? "Saving…" : "Save dataset config"}<span>✓</span></button><span className="helper-text">Dataset folder is selected on Start. Model paths, presets, and job execution will be connected in the next training slices.</span></div>
+    </section>
+    <section className="card preset-workspace">
+      <div className="section-heading"><div><div className="section-kicker">CUSTOM PRESETS / {props.architecture}</div><h3>Save and restore training values</h3></div><span className="pill">DESKTOP COMPATIBLE</span></div>
+      <div className="preset-toolbar"><select value={props.selectedPreset} onChange={(event) => void props.onSelectPreset(event.target.value)}><option value="">Select a saved preset…</option>{props.presetNames.map((name) => <option key={name}>{name}</option>)}</select><button className="button ghost small" disabled={!props.selectedPreset} onClick={props.onDeletePreset}>Delete</button></div>
+      <div className="preset-save-row"><input value={props.presetName} onChange={(event) => props.setPresetName(event.target.value)} placeholder="Preset name" /><button className="button ghost small" onClick={props.onSavePreset}>Save preset</button></div>
+      <textarea className="preset-json" value={props.presetJson} onChange={(event) => props.setPresetJson(event.target.value)} spellCheck={false} aria-label="Preset JSON values" />
+      <div className="helper-text">The JSON body stores the same named-value map used by the desktop preset repository. Model-specific validation will be added before training launch.</div>
     </section>
     <section className="card config-preview"><div className="section-heading"><div><div className="section-kicker">GENERATED ARTIFACT</div><h3>{props.result?.config_relative_path ?? "No config saved yet"}</h3></div></div>{props.result ? <pre>{props.result.content}</pre> : <EmptyState text="Save the configuration to generate a compatible TOML file." />}</section>
   </>;
