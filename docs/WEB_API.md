@@ -29,6 +29,7 @@ Initial endpoints:
 - `POST /api/datasets/remove`
 - `POST /api/datasets/import` (browser folder upload)
 - `POST /api/image-prep/resize-only`
+- `POST /api/training/dataset-config`
 - `POST /api/datasets/find-replace`
 - `GET/PUT/DELETE /api/presets/{architecture}/{name}`
 - `GET /api/presets/{architecture}`

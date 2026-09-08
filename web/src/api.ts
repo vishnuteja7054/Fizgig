@@ -79,6 +79,27 @@ export function resizeOnly(folder: string, targetMegapixels: number, replaceOrig
   });
 }
 
+export interface TrainingConfigResult {
+  config_relative_path: string;
+  content: string;
+}
+
+export function writeTrainingDatasetConfig(values: {
+  name: string;
+  folder: string;
+  target_megapixels: number;
+  batch_size: number;
+  caption_extension: string;
+  enable_bucket: boolean;
+  bucket_no_upscale: boolean;
+  cache_root: string;
+}) {
+  return request<TrainingConfigResult>("/api/training/dataset-config", {
+    method: "POST",
+    body: JSON.stringify(values),
+  });
+}
+
 export function readCaption(item: string): Promise<{ item: string; text: string }> {
   const params = new URLSearchParams({ item });
   return request(`/api/datasets/caption?${params}`);

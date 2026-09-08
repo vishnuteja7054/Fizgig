@@ -24,6 +24,11 @@ from fizgig import __version__ as FIZGIG_VERSION
 from fizgig.app.dataset import DatasetService
 from fizgig.app.image_prep import ImagePrepService
 from fizgig.app.workspace import WorkspaceStateError, WorkspaceStateService
+from fizgig.app.training_config import (
+    DatasetConfigRequest,
+    TrainingConfigError,
+    TrainingConfigService,
+)
 from fizgig.app.presets import (
     PresetError,
     PresetExistsError,
@@ -77,6 +82,17 @@ class ImagePrepRequest(BaseModel):
     replace_originals: bool = False
 
 
+class TrainingDatasetConfigRequest(BaseModel):
+    name: str = Field(default="Fizgig_train", min_length=1)
+    folder: str = Field(default="dataset", min_length=1)
+    target_megapixels: float = Field(default=0.25, gt=0, le=100)
+    batch_size: int = Field(default=1, ge=1, le=1024)
+    caption_extension: str = ".txt"
+    enable_bucket: bool = True
+    bucket_no_upscale: bool = True
+    cache_root: str = Field(default="cache", min_length=1)
+
+
 class PresetSaveRequest(BaseModel):
     values: dict[str, Any]
     overwrite: bool = False
@@ -108,6 +124,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     dataset = DatasetService(root)
     image_prep = ImagePrepService(root)
     workspace_state = WorkspaceStateService(root)
+    training_config = TrainingConfigService(root)
     presets = PresetRepository(root)
 
     app = FastAPI(
@@ -204,6 +221,18 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
             ).as_dict()
         except (ValueError, NotADirectoryError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/training/dataset-config")
+    def write_training_dataset_config(request: TrainingDatasetConfigRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            output, content = training_config.build(DatasetConfigRequest(**values))
+        except (TrainingConfigError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "config_relative_path": output.relative_to(root).as_posix(),
+            "content": content,
+        }
 
     @app.post("/api/datasets/find-replace")
     def find_replace(request: FindReplaceRequest) -> dict[str, Any]:

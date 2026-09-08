@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { importDataset, loadWorkspaceState, readCaption, removeDatasetItem, resizeOnly, scanDataset, updateWorkspaceState, writeCaption } from "./api";
-import type { ImagePrepResult } from "./api";
+import { importDataset, loadWorkspaceState, readCaption, removeDatasetItem, resizeOnly, scanDataset, updateWorkspaceState, writeCaption, writeTrainingDatasetConfig } from "./api";
+import type { ImagePrepResult, TrainingConfigResult } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
 const sections: Array<{ key: SectionKey; label: string; icon: string; group?: string }> = [
@@ -28,6 +28,12 @@ function App() {
   const [prepTargetMegapixels, setPrepTargetMegapixels] = useState("1.0");
   const [prepReplaceOriginals, setPrepReplaceOriginals] = useState(false);
   const [prepResult, setPrepResult] = useState<ImagePrepResult | null>(null);
+  const [trainingConfigName, setTrainingConfigName] = useState("Fizgig_train");
+  const [trainingMegapixels, setTrainingMegapixels] = useState("0.25");
+  const [trainingBatchSize, setTrainingBatchSize] = useState("1");
+  const [trainingEnableBucket, setTrainingEnableBucket] = useState(true);
+  const [trainingNoUpscale, setTrainingNoUpscale] = useState(true);
+  const [trainingConfigResult, setTrainingConfigResult] = useState<TrainingConfigResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("Ready");
   const [error, setError] = useState("");
@@ -119,6 +125,44 @@ function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to prepare images");
       setMessage("Image preparation failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveTrainingDatasetConfig() {
+    const target = Number(trainingMegapixels);
+    const batch = Number(trainingBatchSize);
+    if (!folder.trim() || !Number.isFinite(target) || target <= 0 || !Number.isInteger(batch) || batch < 1) {
+      setError("Choose a dataset folder and valid training values.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const result = await writeTrainingDatasetConfig({
+        name: trainingConfigName.trim() || "Fizgig_train",
+        folder: folder.trim(),
+        target_megapixels: target,
+        batch_size: batch,
+        caption_extension: ".txt",
+        enable_bucket: trainingEnableBucket,
+        bucket_no_upscale: trainingNoUpscale,
+        cache_root: "cache",
+      });
+      setTrainingConfigResult(result);
+      void updateWorkspaceState({
+        dataset_folder: folder.trim(),
+        training_config_name: trainingConfigName.trim() || "Fizgig_train",
+        dataset_megapixels: trainingMegapixels,
+        dataset_batch_size: String(batch),
+        dataset_enable_bucket: trainingEnableBucket,
+        dataset_no_upscale: trainingNoUpscale,
+      }).catch(() => undefined);
+      setMessage(`Saved ${result.config_relative_path}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save training config");
+      setMessage("Training config failed");
     } finally {
       setLoading(false);
     }
@@ -270,7 +314,25 @@ function App() {
               onRun={prepareResizeOnly}
             />
           )}
-          {active !== "start" && active !== "captions" && active !== "prep" && <ComingSoonPage section={active} />}
+          {active === "training" && (
+            <TrainingPage
+              folder={folder}
+              configName={trainingConfigName}
+              setConfigName={setTrainingConfigName}
+              megapixels={trainingMegapixels}
+              setMegapixels={setTrainingMegapixels}
+              batchSize={trainingBatchSize}
+              setBatchSize={setTrainingBatchSize}
+              enableBucket={trainingEnableBucket}
+              setEnableBucket={setTrainingEnableBucket}
+              noUpscale={trainingNoUpscale}
+              setNoUpscale={setTrainingNoUpscale}
+              loading={loading}
+              result={trainingConfigResult}
+              onSave={saveTrainingDatasetConfig}
+            />
+          )}
+          {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && <ComingSoonPage section={active} />}
         </div>
       </main>
     </div>
@@ -394,6 +456,41 @@ function ImagePrepPage(props: {
       <div className="section-heading"><div><div className="section-kicker">PREPARATION REPORT</div><h3>{props.result ? `${props.result.converted} converted · ${props.result.skipped} skipped · ${props.result.errors} errors` : "No preparation run yet"}</h3></div></div>
       {!props.result ? <EmptyState text="Choose a folder on Start, then run Resize only here." /> : <div className="table-wrap"><table><thead><tr><th>Source</th><th>Status</th><th>Output</th><th>Size</th></tr></thead><tbody>{props.result.files.map((item) => <tr key={item.source_relative_path}><td>{item.source_relative_path}</td><td><span className={`caption-state ${item.status === "error" ? "missing" : "ready"}`}>{item.status}</span></td><td>{item.output_relative_path ?? item.detail}</td><td>{item.output_size ? `${item.output_size[0]} × ${item.output_size[1]}` : "—"}</td></tr>)}</tbody></table></div>}
     </section>
+  </>;
+}
+
+function TrainingPage(props: {
+  folder: string;
+  configName: string;
+  setConfigName: (value: string) => void;
+  megapixels: string;
+  setMegapixels: (value: string) => void;
+  batchSize: string;
+  setBatchSize: (value: string) => void;
+  enableBucket: boolean;
+  setEnableBucket: (value: boolean) => void;
+  noUpscale: boolean;
+  setNoUpscale: (value: boolean) => void;
+  loading: boolean;
+  result: TrainingConfigResult | null;
+  onSave: () => void;
+}) {
+  return <>
+    <section className="card prep-banner training-banner">
+      <div><div className="section-kicker">TRAINING / DATASET CONTRACT</div><h2>Build a compatible training config</h2><p>These values write the same TOML dataset contract used by Fizgig’s existing training scripts. Actual model jobs will attach to this config through the durable job runner.</p></div>
+      <span className="pill accent">CONFIG ONLY</span>
+    </section>
+    <section className="card prep-options">
+      <div className="section-heading"><div><div className="section-kicker">DATASET CONFIGURATION</div><h3>{props.folder || "No folder selected"}</h3></div><span className="pill">FIZGIG_TRAIN.TOML</span></div>
+      <div className="training-form-grid">
+        <label className="prep-control"><span>Config name</span><input value={props.configName} onChange={(event) => props.setConfigName(event.target.value)} placeholder="Fizgig_train" /></label>
+        <label className="prep-control"><span>Target megapixels</span><select value={props.megapixels} onChange={(event) => props.setMegapixels(event.target.value)}><option value="0.25">0.25 MP</option><option value="0.5">0.5 MP</option><option value="0.75">0.75 MP</option><option value="1.0">1.0 MP</option><option value="1.5">1.5 MP</option><option value="2.0">2.0 MP</option></select></label>
+        <label className="prep-control"><span>Batch size</span><input type="number" min="1" max="1024" value={props.batchSize} onChange={(event) => props.setBatchSize(event.target.value)} /></label>
+      </div>
+      <div className="training-checks"><label><input type="checkbox" checked={props.enableBucket} onChange={(event) => props.setEnableBucket(event.target.checked)} /> Enable resolution buckets</label><label><input type="checkbox" checked={props.noUpscale} onChange={(event) => props.setNoUpscale(event.target.checked)} /> Never upscale images</label></div>
+      <div className="prep-actions"><button className="button primary" disabled={props.loading || !props.folder} onClick={props.onSave}>{props.loading ? "Saving…" : "Save dataset config"}<span>✓</span></button><span className="helper-text">Dataset folder is selected on Start. Model paths, presets, and job execution will be connected in the next training slices.</span></div>
+    </section>
+    <section className="card config-preview"><div className="section-heading"><div><div className="section-kicker">GENERATED ARTIFACT</div><h3>{props.result?.config_relative_path ?? "No config saved yet"}</h3></div></div>{props.result ? <pre>{props.result.content}</pre> : <EmptyState text="Save the configuration to generate a compatible TOML file." />}</section>
   </>;
 }
 
