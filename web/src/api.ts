@@ -99,6 +99,13 @@ export interface TrainingLaunchValues {
   save_every_n_epochs: number;
   blocks_to_swap: number | string;
   gradient_checkpointing: boolean;
+  sample_prompts: string;
+  sample_every_n_epochs: number;
+  sample_at_first: boolean;
+  sample_width: number;
+  sample_height: number;
+  sample_steps: number;
+  sample_seed: number;
 }
 
 export interface TrainingCommandPreview {
@@ -133,6 +140,25 @@ export function startTrainingJob(values: TrainingLaunchValues) {
       save_state_on_train_end: true,
     }),
   });
+}
+
+export function writeSamplePrompts(name: string, text: string) {
+  return request<{ relative_path: string; prompts: string[]; count: number }>("/api/samples/prompts", {
+    method: "POST",
+    body: JSON.stringify({ name, text, folder: "samples" }),
+  });
+}
+
+export function writeSampleOverride(values: { output_dir: string; prompt: string; seed: number; width: number; height: number; ref_image?: string }) {
+  return request<{ relative_path: string }>("/api/samples/override", {
+    method: "POST",
+    body: JSON.stringify(values),
+  });
+}
+
+export function clearSampleOverride(outputDir: string) {
+  const params = new URLSearchParams({ output_dir: outputDir });
+  return request(`/api/samples/override?${params}`, { method: "DELETE" });
 }
 
 export function writeTrainingDatasetConfig(values: {

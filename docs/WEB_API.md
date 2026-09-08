@@ -32,6 +32,8 @@ Initial endpoints:
 - `POST /api/training/dataset-config`
 - `POST /api/training/command-preview` (validate and preview a Klein/Krea 2/MiniMax command)
 - `POST /api/training/start` (start a persistent model-training job)
+- `POST /api/samples/prompts`
+- `POST/DELETE /api/samples/override`
 - `GET/POST /api/jobs`
 - `GET /api/jobs/{id}`
 - `GET /api/jobs/{id}/log`

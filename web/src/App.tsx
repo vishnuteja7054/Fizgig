@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { deletePreset, getJob, importDataset, listPresets, loadPreset, loadWorkspaceState, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeTrainingDatasetConfig } from "./api";
+import { clearSampleOverride, deletePreset, getJob, importDataset, listPresets, loadPreset, loadWorkspaceState, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
 import type { ImagePrepResult, TrainingCommandPreview, TrainingConfigResult } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
@@ -45,6 +45,16 @@ function App() {
   const [trainingLearningRate, setTrainingLearningRate] = useState("0.0001");
   const [trainingBlocksSwap, setTrainingBlocksSwap] = useState("0");
   const [trainingCommand, setTrainingCommand] = useState<TrainingCommandPreview | null>(null);
+  const [sampleText, setSampleText] = useState("A high quality photo");
+  const [sampleName, setSampleName] = useState("prompts.txt");
+  const [samplePromptFile, setSamplePromptFile] = useState("");
+  const [sampleEveryEpochs, setSampleEveryEpochs] = useState("1");
+  const [sampleAtFirst, setSampleAtFirst] = useState(true);
+  const [sampleWidth, setSampleWidth] = useState("768");
+  const [sampleHeight, setSampleHeight] = useState("768");
+  const [sampleSteps, setSampleSteps] = useState("40");
+  const [sampleSeed, setSampleSeed] = useState("1234");
+  const [sampleOverridePrompt, setSampleOverridePrompt] = useState("");
   const [presetNames, setPresetNames] = useState<string[]>([]);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [presetName, setPresetName] = useState("");
@@ -217,7 +227,58 @@ function App() {
       save_every_n_epochs: 0,
       blocks_to_swap: blocks,
       gradient_checkpointing: true,
+      sample_prompts: samplePromptFile,
+      sample_every_n_epochs: Number(sampleEveryEpochs) || 0,
+      sample_at_first: sampleAtFirst,
+      sample_width: Number(sampleWidth) || 768,
+      sample_height: Number(sampleHeight) || 768,
+      sample_steps: Number(sampleSteps) || 8,
+      sample_seed: Number(sampleSeed) || 42,
     } as const;
+  }
+
+  async function saveSamplePrompts() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await writeSamplePrompts(sampleName.trim() || "prompts.txt", sampleText);
+      setSamplePromptFile(result.relative_path);
+      setMessage(`Saved ${result.count} sample prompt${result.count === 1 ? "" : "s"} to ${result.relative_path}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save sample prompts");
+      setMessage("Sample prompt save failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function activateSampleOverride() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await writeSampleOverride({
+        output_dir: trainingOutputDir.trim() || "output_loras",
+        prompt: sampleOverridePrompt,
+        seed: Number(sampleSeed) || 1234,
+        width: Number(sampleWidth) || 768,
+        height: Number(sampleHeight) || 768,
+      });
+      setMessage(`Live sample override active at ${result.relative_path}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to activate sample override");
+      setMessage("Sample override failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deactivateSampleOverride() {
+    try {
+      await clearSampleOverride(trainingOutputDir.trim() || "output_loras");
+      setMessage("Live sample override cleared");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to clear sample override");
+    }
   }
 
   async function previewTraining() {
@@ -520,7 +581,35 @@ function App() {
               onStart={startTraining}
             />
           )}
-          {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && <ComingSoonPage section={active} />}
+          {active === "samples" && (
+            <SamplesPage
+              text={sampleText}
+              setText={setSampleText}
+              name={sampleName}
+              setName={setSampleName}
+              promptFile={samplePromptFile}
+              everyEpochs={sampleEveryEpochs}
+              setEveryEpochs={setSampleEveryEpochs}
+              atFirst={sampleAtFirst}
+              setAtFirst={setSampleAtFirst}
+              width={sampleWidth}
+              setWidth={setSampleWidth}
+              height={sampleHeight}
+              setHeight={setSampleHeight}
+              steps={sampleSteps}
+              setSteps={setSampleSteps}
+              seed={sampleSeed}
+              setSeed={setSampleSeed}
+              overridePrompt={sampleOverridePrompt}
+              setOverridePrompt={setSampleOverridePrompt}
+              outputDir={trainingOutputDir}
+              loading={loading}
+              onSave={saveSamplePrompts}
+              onActivate={activateSampleOverride}
+              onDeactivate={deactivateSampleOverride}
+            />
+          )}
+          {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && active !== "samples" && <ComingSoonPage section={active} />}
         </div>
       </main>
     </div>
@@ -735,6 +824,62 @@ function TrainingPage(props: {
       <div className="helper-text">The JSON body stores the same named-value map used by the desktop preset repository. Model-specific validation will be added before training launch.</div>
     </section>
     <section className="card config-preview"><div className="section-heading"><div><div className="section-kicker">GENERATED ARTIFACT</div><h3>{props.result?.config_relative_path ?? "No config saved yet"}</h3></div></div>{props.result ? <pre>{props.result.content}</pre> : <EmptyState text="Save the configuration to generate a compatible TOML file." />}</section>
+  </>;
+}
+
+function SamplesPage(props: {
+  text: string;
+  setText: (value: string) => void;
+  name: string;
+  setName: (value: string) => void;
+  promptFile: string;
+  everyEpochs: string;
+  setEveryEpochs: (value: string) => void;
+  atFirst: boolean;
+  setAtFirst: (value: boolean) => void;
+  width: string;
+  setWidth: (value: string) => void;
+  height: string;
+  setHeight: (value: string) => void;
+  steps: string;
+  setSteps: (value: string) => void;
+  seed: string;
+  setSeed: (value: string) => void;
+  overridePrompt: string;
+  setOverridePrompt: (value: string) => void;
+  outputDir: string;
+  loading: boolean;
+  onSave: () => void;
+  onActivate: () => void;
+  onDeactivate: () => void;
+}) {
+  return <>
+    <section className="card prep-banner">
+      <div><div className="section-kicker">SAMPLES / TRAINING PREVIEWS</div><h2>Control preview prompts without touching the model</h2><p>Prompt files and live overrides use the same artifacts consumed by the desktop trainer. Saving prompts does not start inference.</p></div>
+      <span className="pill accent">NO MODEL REQUIRED</span>
+    </section>
+    <section className="card prep-options">
+      <div className="section-heading"><div><div className="section-kicker">PROMPT FILE</div><h3>One prompt per line</h3></div><span className="pill">DESKTOP COMPATIBLE</span></div>
+      <div className="preset-save-row"><input value={props.name} onChange={(event) => props.setName(event.target.value)} placeholder="prompts.txt" /><span className="helper-text">Saved under samples/</span></div>
+      <textarea className="preset-json sample-prompts" value={props.text} onChange={(event) => props.setText(event.target.value)} aria-label="Sample prompts" />
+      <div className="prep-actions"><button className="button primary" disabled={props.loading} onClick={props.onSave}>Save prompt file <span>✓</span></button><span className="helper-text">{props.promptFile ? `Training can use ${props.promptFile}` : "No prompt file saved yet"}</span></div>
+    </section>
+    <section className="card prep-options">
+      <div className="section-heading"><div><div className="section-kicker">PREVIEW SETTINGS</div><h3>Cadence and canvas</h3></div></div>
+      <div className="training-form-grid sample-settings-grid">
+        <label className="prep-control"><span>Every N epochs</span><input type="number" min="0" value={props.everyEpochs} onChange={(event) => props.setEveryEpochs(event.target.value)} /></label>
+        <label className="prep-control"><span>Width</span><input type="number" min="16" value={props.width} onChange={(event) => props.setWidth(event.target.value)} /></label>
+        <label className="prep-control"><span>Height</span><input type="number" min="16" value={props.height} onChange={(event) => props.setHeight(event.target.value)} /></label>
+        <label className="prep-control"><span>Steps</span><input type="number" min="1" value={props.steps} onChange={(event) => props.setSteps(event.target.value)} /></label>
+        <label className="prep-control"><span>Seed</span><input type="number" value={props.seed} onChange={(event) => props.setSeed(event.target.value)} /></label>
+      </div>
+      <label className="training-checks"><input type="checkbox" checked={props.atFirst} onChange={(event) => props.setAtFirst(event.target.checked)} /> Sample at the start of training</label>
+    </section>
+    <section className="card prep-options">
+      <div className="section-heading"><div><div className="section-kicker">LIVE OVERRIDE</div><h3>Change the next preview at an epoch boundary</h3></div><span className="pill">OUTPUT: {props.outputDir || "output_loras"}</span></div>
+      <label className="editor-label" style={{ marginTop: 18 }}>Temporary prompt<textarea value={props.overridePrompt} onChange={(event) => props.setOverridePrompt(event.target.value)} placeholder="Leave empty to disable prompt override." /></label>
+      <div className="prep-actions"><button className="button primary" disabled={props.loading || !props.overridePrompt.trim()} onClick={props.onActivate}>Activate override</button><button className="button ghost" disabled={props.loading} onClick={props.onDeactivate}>Clear override</button><span className="helper-text">The trainer reads this file between epochs; the current run is not interrupted.</span></div>
+    </section>
   </>;
 }
 

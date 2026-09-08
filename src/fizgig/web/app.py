@@ -25,6 +25,7 @@ from fizgig import __version__ as FIZGIG_VERSION
 from fizgig.app.dataset import DatasetService
 from fizgig.app.image_prep import ImagePrepService
 from fizgig.app.jobs import JobService
+from fizgig.app.samples import SampleError, SampleService
 from fizgig.app.training import TrainingCommandService, TrainingLaunchError, run_training_job
 from fizgig.app.workspace import WorkspaceStateError, WorkspaceStateService
 from fizgig.app.training_config import (
@@ -140,6 +141,21 @@ class TrainingLaunchRequest(BaseModel):
     extra_args: list[str] = Field(default_factory=list)
 
 
+class SamplePromptsRequest(BaseModel):
+    name: str = "prompts.txt"
+    text: str = ""
+    folder: str = "samples"
+
+
+class SampleOverrideRequest(BaseModel):
+    output_dir: str = Field(min_length=1)
+    prompt: str = ""
+    seed: int = 1234
+    width: int = 768
+    height: int = 768
+    ref_image: str = ""
+
+
 class JobCreateRequest(BaseModel):
     kind: str = Field(min_length=1)
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -180,6 +196,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     jobs = JobService(root)
     presets = PresetRepository(root)
     training_commands = TrainingCommandService(root)
+    samples = SampleService(root)
 
     app = FastAPI(
         title="Fizgig Browser API",
@@ -312,6 +329,30 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
             return run_training_job(context, job_payload, training_commands)
 
         return jobs.create("training.run", payload, run).as_dict()
+
+    @app.post("/api/samples/prompts")
+    def write_sample_prompts(request: SamplePromptsRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            return samples.write_prompts(**values)
+        except (SampleError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/samples/override")
+    def write_sample_override(request: SampleOverrideRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            return samples.write_override(**values)
+        except (SampleError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.delete("/api/samples/override")
+    def clear_sample_override(output_dir: str = Query(min_length=1)) -> dict[str, str]:
+        try:
+            samples.clear_override(output_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"output_dir": output_dir, "status": "cleared"}
 
     @app.get("/api/jobs")
     def list_jobs(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
