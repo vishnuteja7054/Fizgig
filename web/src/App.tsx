@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { deletePreset, importDataset, listPresets, loadPreset, loadWorkspaceState, readCaption, removeDatasetItem, resizeOnly, savePreset, scanDataset, updateWorkspaceState, writeCaption, writeTrainingDatasetConfig } from "./api";
+import { deletePreset, getJob, importDataset, listPresets, loadPreset, loadWorkspaceState, readCaption, removeDatasetItem, savePreset, scanDataset, startResizeOnlyJob, updateWorkspaceState, writeCaption, writeTrainingDatasetConfig } from "./api";
 import type { ImagePrepResult, TrainingConfigResult } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
@@ -120,7 +120,15 @@ function App() {
         prep_megapixels: prepTargetMegapixels,
         prep_replace_originals: prepReplaceOriginals,
       }).catch(() => undefined);
-      const result = await resizeOnly(folder.trim(), target, prepReplaceOriginals);
+      const started = await startResizeOnlyJob(folder.trim(), target, prepReplaceOriginals);
+      let job = started;
+      while (["queued", "starting", "running", "cancel_requested"].includes(job.status)) {
+        setMessage(`${job.message} · ${Math.round(job.progress)}%`);
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        job = await getJob(started.id);
+      }
+      if (job.status !== "completed") throw new Error(job.error || `Image preparation ${job.status}`);
+      const result = job.result as ImagePrepResult;
       setPrepResult(result);
       const scanResult = await scanDataset(folder.trim());
       setItems(scanResult.items);

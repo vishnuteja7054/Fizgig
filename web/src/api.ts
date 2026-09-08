@@ -126,6 +126,35 @@ export function deletePreset(architecture: string, name: string) {
   );
 }
 
+export interface JobRecord {
+  id: string;
+  kind: string;
+  status: "queued" | "starting" | "running" | "cancel_requested" | "completed" | "failed" | "cancelled";
+  progress: number;
+  message: string;
+  payload: Record<string, unknown>;
+  result: unknown;
+  error: string | null;
+}
+
+export function startResizeOnlyJob(folder: string, targetMegapixels: number, replaceOriginals: boolean) {
+  return request<JobRecord>("/api/jobs", {
+    method: "POST",
+    body: JSON.stringify({
+      kind: "image_prep.resize_only",
+      payload: {
+        folder,
+        target_megapixels: targetMegapixels,
+        replace_originals: replaceOriginals,
+      },
+    }),
+  });
+}
+
+export function getJob(jobId: string) {
+  return request<JobRecord>(`/api/jobs/${encodeURIComponent(jobId)}`);
+}
+
 export function readCaption(item: string): Promise<{ item: string; text: string }> {
   const params = new URLSearchParams({ item });
   return request(`/api/datasets/caption?${params}`);

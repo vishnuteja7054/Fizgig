@@ -90,6 +90,9 @@ gpu_detect_debug.log
 # Leftover portable-Python cache from older ROCm installer attempts
 python312/
 
+# Browser job records and runtime state
+.fizgig/
+
 # Browser frontend build artifacts and installed dependencies
 web/node_modules/
 web/dist/

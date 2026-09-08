@@ -23,6 +23,7 @@ except ImportError as exc:  # pragma: no cover - gives a useful startup error
 from fizgig import __version__ as FIZGIG_VERSION
 from fizgig.app.dataset import DatasetService
 from fizgig.app.image_prep import ImagePrepService
+from fizgig.app.jobs import JobService
 from fizgig.app.workspace import WorkspaceStateError, WorkspaceStateService
 from fizgig.app.training_config import (
     DatasetConfigRequest,
@@ -93,6 +94,11 @@ class TrainingDatasetConfigRequest(BaseModel):
     cache_root: str = Field(default="cache", min_length=1)
 
 
+class JobCreateRequest(BaseModel):
+    kind: str = Field(min_length=1)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class PresetSaveRequest(BaseModel):
     values: dict[str, Any]
     overwrite: bool = False
@@ -125,6 +131,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     image_prep = ImagePrepService(root)
     workspace_state = WorkspaceStateService(root)
     training_config = TrainingConfigService(root)
+    jobs = JobService(root)
     presets = PresetRepository(root)
 
     app = FastAPI(
@@ -233,6 +240,49 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
             "config_relative_path": output.relative_to(root).as_posix(),
             "content": content,
         }
+
+    @app.get("/api/jobs")
+    def list_jobs(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
+        return {"jobs": [record.as_dict() for record in jobs.list(limit=limit)]}
+
+    @app.get("/api/jobs/{job_id}")
+    def get_job(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.get(job_id).as_dict()
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.cancel(job_id).as_dict()
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/api/jobs")
+    def create_job(request: JobCreateRequest) -> dict[str, Any]:
+        if request.kind != "image_prep.resize_only":
+            raise HTTPException(status_code=400, detail=f"unsupported job kind: {request.kind}")
+        try:
+            prep_request = ImagePrepRequest(**request.payload)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def run_resize(context, payload):
+            context.update(progress=5, message="Preparing images")
+            result = image_prep.resize_only(
+                payload["folder"],
+                payload.get("target_megapixels", 1.0),
+                replace_originals=payload.get("replace_originals", False),
+            )
+            context.update(progress=100, message="Image preparation complete")
+            return result.as_dict()
+
+        return jobs.create(request.kind, prep_request.model_dump() if hasattr(prep_request, "model_dump") else prep_request.dict(), run_resize).as_dict()
 
     @app.post("/api/datasets/find-replace")
     def find_replace(request: FindReplaceRequest) -> dict[str, Any]:
