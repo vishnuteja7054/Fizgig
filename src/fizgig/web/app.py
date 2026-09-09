@@ -138,6 +138,7 @@ class TrainingLaunchRequest(BaseModel):
     sample_cfg_scale: float = Field(default=1.0, gt=0)
     sample_negative: str = ""
     sample_seed: int = 42
+    prepare_cache: bool = True
     extra_args: list[str] = Field(default_factory=list)
 
 

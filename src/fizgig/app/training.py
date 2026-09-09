@@ -72,6 +72,7 @@ class TrainingLaunchRequest:
     sample_cfg_scale: float = 1.0
     sample_negative: str = ""
     sample_seed: int = 42
+    prepare_cache: bool = True
     extra_args: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -311,14 +312,67 @@ class TrainingCommandService:
         command.extend(request.extra_args)
         return command
 
+    def build_cache_commands(self, request: TrainingLaunchRequest) -> list[tuple[str, list[str]]]:
+        """Build the two cache stages that desktop launches before training."""
+
+        architecture, paths = self._validate(request)
+        if architecture != "Flux 2 Klein Base 9B" and (not paths["vae"] or not paths["text_encoder"]):
+            raise TrainingLaunchError(
+                f"{architecture} cache preparation requires both vae and text_encoder paths"
+            )
+        scripts = self.project_root / "src/fizgig/scripts"
+        if architecture == "Flux 2 Klein Base 9B":
+            latent = [
+                self.python_executable, str(scripts / "cache_latents.py"),
+                "--dataset_config", paths["dataset_config"], "--vae", paths["vae"],
+                "--model_version", "klein-base-9b",
+            ]
+            text = [
+                self.python_executable, str(scripts / "cache_text.py"),
+                "--dataset_config", paths["dataset_config"], "--text_encoder", paths["text_encoder"],
+                "--batch_size", "16", "--model_version", "klein-base-9b",
+            ]
+        elif architecture == "Krea 2":
+            latent = [
+                self.python_executable, str(scripts / "krea2_cache_latents.py"),
+                "--dataset_config", paths["dataset_config"], "--vae", paths["vae"],
+            ]
+            text = [
+                self.python_executable, str(scripts / "krea2_cache_text.py"),
+                "--dataset_config", paths["dataset_config"], "--text_encoder", paths["text_encoder"],
+            ]
+        else:
+            latent = [
+                self.python_executable, str(scripts / "minimax_cache_latents.py"),
+                "--dataset_config", paths["dataset_config"], "--vae", paths["vae"],
+                "--skip_existing",
+            ]
+            text = [
+                self.python_executable, str(scripts / "minimax_cache_text.py"),
+                "--dataset_config", paths["dataset_config"], "--text_encoder", paths["text_encoder"],
+            ]
+        return [("Latent caching", latent), ("Text encoder caching", text)]
+
+    def build_pipeline(self, request: TrainingLaunchRequest) -> list[tuple[str, list[str]]]:
+        stages: list[tuple[str, list[str]]] = []
+        if request.prepare_cache and not request.resume.strip():
+            stages.extend(self.build_cache_commands(request))
+        stages.append(("Training", self.build(request)))
+        return stages
+
     def preview(self, request: TrainingLaunchRequest) -> dict[str, Any]:
         command = self.build(request)
+        stages = self.build_pipeline(request)
         return {
             "architecture": self._architecture(request.architecture),
             "command": command,
             "shell_command": shlex.join(command),
             "working_directory": str(self.project_root),
             "execution_ready": True,
+            "stages": [
+                {"name": name, "command": stage, "shell_command": shlex.join(stage)}
+                for name, stage in stages
+            ],
         }
 
 
@@ -326,48 +380,54 @@ def run_training_job(context: JobContext, payload: dict[str, Any], service: Trai
     """Run one validated command, streaming output into its persistent job log."""
 
     request = service.from_mapping(payload["request"])
-    command = service.build(request)
+    stages = service.build_pipeline(request)
     log_path = service.paths.resolve_child(f".fizgig/jobs/{context.job_id}.log")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
     environment.setdefault("PYTHONUNBUFFERED", "1")
-    process = subprocess.Popen(
-        command,
-        cwd=str(service.project_root),
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    try:
-        with log_path.open("w", encoding="utf-8") as log:
+    def run_stage(log, name: str, command: list[str], progress: float) -> None:
+        context.update(progress=progress, message=f"Starting {name}")
+        process = subprocess.Popen(
+            command,
+            cwd=str(service.project_root),
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        try:
             assert process.stdout is not None
             for line in process.stdout:
                 log.write(line)
                 log.flush()
-                context.update(message=line.rstrip()[-240:])
+                context.update(message=f"{name}: {line.rstrip()[-220:]}")
                 if context.service.get(context.job_id).cancel_requested:
                     process.terminate()
                     raise JobCancelled()
-        return_code = process.wait()
-        if return_code != 0:
-            raise RuntimeError(f"training process exited with code {return_code}")
-    except JobCancelled:
-        if process.poll() is None:
-            process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-        raise
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait()
+            return_code = process.wait()
+            if return_code != 0:
+                raise RuntimeError(f"{name} exited with code {return_code}")
+        except JobCancelled:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+    with log_path.open("w", encoding="utf-8") as log:
+        for index, (name, command) in enumerate(stages):
+            run_stage(log, name, command, index * 100 / len(stages))
+    context.update(progress=100, message="Training pipeline complete")
     return {
         "return_code": 0,
         "log_relative_path": log_path.relative_to(service.paths.root).as_posix(),
-        "command": command,
+        "stages": [{"name": name, "command": command} for name, command in stages],
     }

@@ -106,6 +106,7 @@ export interface TrainingLaunchValues {
   sample_height: number;
   sample_steps: number;
   sample_seed: number;
+  prepare_cache: boolean;
 }
 
 export interface TrainingCommandPreview {
@@ -114,6 +115,7 @@ export interface TrainingCommandPreview {
   shell_command: string;
   working_directory: string;
   execution_ready: boolean;
+  stages: Array<{ name: string; command: string[]; shell_command: string }>;
 }
 
 export function previewTrainingCommand(values: TrainingLaunchValues) {
@@ -125,6 +127,7 @@ export function previewTrainingCommand(values: TrainingLaunchValues) {
       optimizer_type: "adamw8bit",
       save_state: true,
       save_state_on_train_end: true,
+      prepare_cache: true,
     }),
   });
 }
@@ -138,6 +141,7 @@ export function startTrainingJob(values: TrainingLaunchValues) {
       optimizer_type: "adamw8bit",
       save_state: true,
       save_state_on_train_end: true,
+      prepare_cache: true,
     }),
   });
 }

@@ -234,6 +234,7 @@ function App() {
       sample_height: Number(sampleHeight) || 768,
       sample_steps: Number(sampleSteps) || 8,
       sample_seed: Number(sampleSeed) || 42,
+      prepare_cache: true,
     } as const;
   }
 
@@ -804,8 +805,8 @@ function TrainingPage(props: {
       <div className="section-heading"><div><div className="section-kicker">TRAINING LAUNCH</div><h3>Connect model files and runtime settings</h3></div><span className="pill">COMMAND PREVIEW FIRST</span></div>
       <div className="training-form-grid">
         <label className="prep-control"><span>DiT model path</span><input value={props.dit} onChange={(event) => props.setDit(event.target.value)} placeholder="/models/base.safetensors" /></label>
-        <label className="prep-control"><span>VAE path <small>(required for Klein)</small></span><input value={props.vae} onChange={(event) => props.setVae(event.target.value)} placeholder="/models/vae.safetensors" /></label>
-        <label className="prep-control"><span>Text encoder path <small>(samples)</small></span><input value={props.textEncoder} onChange={(event) => props.setTextEncoder(event.target.value)} placeholder="/models/text_encoder.safetensors" /></label>
+        <label className="prep-control"><span>VAE path <small>(required for cache)</small></span><input value={props.vae} onChange={(event) => props.setVae(event.target.value)} placeholder="/models/vae.safetensors" /></label>
+        <label className="prep-control"><span>Text encoder path <small>(required for cache)</small></span><input value={props.textEncoder} onChange={(event) => props.setTextEncoder(event.target.value)} placeholder="/models/text_encoder.safetensors" /></label>
         <label className="prep-control"><span>Output directory</span><input value={props.outputDir} onChange={(event) => props.setOutputDir(event.target.value)} placeholder="output_loras" /></label>
         <label className="prep-control"><span>Output name</span><input value={props.outputName} onChange={(event) => props.setOutputName(event.target.value)} /></label>
         <label className="prep-control"><span>Epochs</span><input type="number" min="1" value={props.epochs} onChange={(event) => props.setEpochs(event.target.value)} /></label>
@@ -814,7 +815,7 @@ function TrainingPage(props: {
         <label className="prep-control"><span>Blocks to swap <small>(MiniMax accepts auto)</small></span><input value={props.blocksSwap} onChange={(event) => props.setBlocksSwap(event.target.value)} /></label>
       </div>
       <div className="prep-actions"><button className="button ghost" disabled={props.loading} onClick={props.onPreview}>Validate command</button><button className="button primary" disabled={props.loading || !props.command} onClick={props.onStart}>Start training <span>→</span></button><span className="helper-text">Validation only reads paths and builds argv. Start is the explicit model-job action.</span></div>
-      {props.command && <div className="command-preview"><div className="section-kicker">VALIDATED COMMAND</div><pre>{props.command.shell_command}</pre><small>Working directory: {props.command.working_directory}</small></div>}
+      {props.command && <div className="command-preview"><div className="section-kicker">VALIDATED PIPELINE</div>{props.command.stages.map((stage) => <div key={stage.name}><small>{stage.name}</small><pre>{stage.shell_command}</pre></div>)}<small>Working directory: {props.command.working_directory}</small></div>}
     </section>
     <section className="card preset-workspace">
       <div className="section-heading"><div><div className="section-kicker">CUSTOM PRESETS / {props.architecture}</div><h3>Save and restore training values</h3></div><span className="pill">DESKTOP COMPATIBLE</span></div>

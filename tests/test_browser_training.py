@@ -66,10 +66,26 @@ class TrainingCommandTests(unittest.TestCase):
             architecture="Krea 2",
             dataset_config="dataset/train.toml",
             dit="base.safetensors",
+            vae="vae.safetensors",
+            text_encoder="text_encoder.safetensors",
             output_name="name with spaces",
         ))
         self.assertTrue(result["execution_ready"])
         self.assertIn("'name with spaces'", result["shell_command"])
+        self.assertEqual([stage["name"] for stage in result["stages"]], ["Latent caching", "Text encoder caching", "Training"])
+
+    def test_resume_skips_cache_stages(self):
+        resume = self.root / "state"
+        resume.write_text("state", encoding="utf-8")
+        result = self.service.preview(TrainingLaunchRequest(
+            architecture="Krea 2",
+            dataset_config="dataset/train.toml",
+            dit="base.safetensors",
+            vae="vae.safetensors",
+            text_encoder="text_encoder.safetensors",
+            resume="state",
+        ))
+        self.assertEqual([stage["name"] for stage in result["stages"]], ["Training"])
 
 
 if __name__ == "__main__":
