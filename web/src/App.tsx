@@ -22,6 +22,7 @@ const sections: Array<{ key: SectionKey; label: string; icon: string; group?: st
 
 function App() {
   const [active, setActive] = useState<SectionKey>("start");
+  const [moreOpen, setMoreOpen] = useState(false);
   const [folder, setFolder] = useState("dataset");
   const [items, setItems] = useState<DatasetItem[]>([]);
   const [selected, setSelected] = useState<DatasetItem | null>(null);
@@ -663,6 +664,9 @@ function App() {
     { label: "Workbench", items: sections.filter((section) => section.group === "Workbench") },
     { label: "Tools", items: sections.filter((section) => section.group === "Tools") },
   ];
+  const primaryKeys: SectionKey[] = ["start", "prep", "captions", "samples", "training", "profiler", "repair", "explorer", "extract", "preferences"];
+  const primarySections = primaryKeys.map((key) => sections.find((section) => section.key === key)!);
+  const moreSections = sections.filter((section) => !primaryKeys.includes(section.key));
 
   return (
     <div className="app-shell">
@@ -697,17 +701,12 @@ function App() {
       </aside>
 
       <main className="main-area">
-        <header className="topbar">
-          <div>
-            <div className="eyebrow">WORKBENCH / {active.toUpperCase()}</div>
-            <h1>{sections.find((section) => section.key === active)?.label}</h1>
-          </div>
-          <div className="topbar-actions">
-            <div className="connection"><span className="status-dot" /> API connected</div>
-            <button className="icon-button" aria-label="Help">?</button>
-            <div className="avatar">V</div>
-          </div>
-        </header>
+        <header className="window-chrome"><span>Fizgig — Klein 9B LoRA Studio</span><span className="window-status" title="API connected"><span className="status-dot" /></span></header>
+        <nav className="tab-strip" aria-label="Fizgig tabs">
+          {primarySections.map((section) => <button className={`tab-button ${active === section.key ? "active" : ""}`} key={section.key} onClick={() => { setActive(section.key); setMoreOpen(false); }}>{section.label}</button>)}
+          <button className="more-tools-button" aria-label="More tools" title="More tools" onClick={() => setMoreOpen((value) => !value)}><span className="status-dot" /></button>
+          {moreOpen && <div className="more-tools-menu">{moreSections.map((section) => <button key={section.key} onClick={() => { setActive(section.key); setMoreOpen(false); }}>{section.label}</button>)}</div>}
+        </nav>
 
         <div className="content">
           {error && <div className="alert error"><span>!</span>{error}</div>}
@@ -858,14 +857,17 @@ function StartPage(props: {
 
       <section className="card workflow-card">
         <div className="section-heading"><div><div className="section-kicker">WORKFLOW</div><h3>Training Workflow</h3></div><span className="pill accent">FIZGIG</span></div>
-        <div className="workflow-steps">
-          {[
-            ["1", "Start", "Choose your training image folder."],
-            ["2", "Image Prep", "Resize, convert to PNG, or face-crop."],
-            ["3", "Captions", "Write trigger-word captions or generate them with AI."],
-            ["4", "Samples", "Configure in-training preview prompts."],
-            ["5", "Training", "Pick a preset, tune settings, click Start Training."],
-          ].map(([number, title, description], index) => <div className="workflow-step" key={title}><span className="workflow-number">{number}</span><strong>{title}</strong>{index === 1 && <span className="optional-badge">OPTIONAL</span>}<span>{description}</span></div>)}
+        <div className="workflow-body">
+          <div className="workflow-steps">
+            {[
+              ["1", "Start", "Choose your training image folder."],
+              ["2", "Image Prep", "Resize, convert to PNG, or face-crop."],
+              ["3", "Captions", "Write trigger-word captions or generate them with AI."],
+              ["4", "Samples", "Configure in-training preview prompts."],
+              ["5", "Training", "Pick a preset, tune settings, click Start Training."],
+            ].map(([number, title, description], index) => <div className="workflow-step" key={title}><span className="workflow-number">{number}</span><strong>{title}</strong>{index === 1 && <span className="optional-badge">OPTIONAL</span>}<span>{description}</span></div>)}
+          </div>
+          <div className="workflow-art"><img src="/logo.jpg" alt="Fizgig workflow" /></div>
         </div>
       </section>
 

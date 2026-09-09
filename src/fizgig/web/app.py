@@ -767,6 +767,14 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"architecture": architecture, "name": name}
 
+    @app.get("/logo.jpg", include_in_schema=False)
+    def ui_logo() -> FileResponse:
+        """Serve the original Fizgig workflow artwork with the browser UI."""
+        logo = Path(__file__).resolve().parents[3] / "logo.jpg"
+        if not logo.is_file():
+            raise HTTPException(status_code=404, detail="Fizgig logo is not installed")
+        return FileResponse(logo, media_type="image/jpeg")
+
     # A production image can build the React bundle into web/dist. Mount it
     # last so all /api routes above retain precedence while the same HTTP
     # origin serves the browser app without Vite or noVNC.
