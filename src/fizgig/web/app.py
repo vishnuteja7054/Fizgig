@@ -13,7 +13,8 @@ from typing import Any
 
 try:
     from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
-    from fastapi.responses import PlainTextResponse
+    from fastapi.responses import FileResponse, PlainTextResponse
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, Field
 except ImportError as exc:  # pragma: no cover - gives a useful startup error
     raise RuntimeError(
@@ -48,6 +49,8 @@ from fizgig.app.presets import (
     PresetNotFoundError,
     PresetRepository,
 )
+from fizgig.app.repair import RepairError, RepairService
+from fizgig.app.state import WorkspacePaths
 
 
 class DatasetItemResponse(BaseModel):
@@ -200,6 +203,54 @@ class ExtractToolRequest(BaseModel):
     text_encoder: str = ""
 
 
+class RepairBakeRequest(BaseModel):
+    primary: str = Field(min_length=1)
+    output: str = Field(min_length=1)
+    state: dict[str, Any]
+    donor: str = ""
+
+
+class RepairRenderRequest(RepairBakeRequest):
+    family: str = "klein"
+    dit: str = Field(min_length=1)
+    vae: str = Field(min_length=1)
+    text_encoder: str = Field(min_length=1)
+    device: str = "cuda"
+    blocks_to_swap: int = Field(default=0, ge=0)
+
+
+class ExplorerRenderRequest(BaseModel):
+    family: str = "klein"
+    primary: str = Field(min_length=1)
+    donor: str = ""
+    output_dir: str = "out/explorer"
+    state: dict[str, Any]
+    dit: str = Field(min_length=1)
+    vae: str = Field(min_length=1)
+    text_encoder: str = Field(min_length=1)
+    device: str = "cuda"
+    blocks_to_swap: int = Field(default=0, ge=0)
+    variants: int = Field(default=4, ge=1, le=8)
+    intensity: float = Field(default=0.5, ge=0, le=1)
+    structure: float = Field(default=1.0, ge=0, le=1)
+
+
+class RoyaleRenderRequest(BaseModel):
+    family: str = "klein"
+    folder: str = "output_loras"
+    output_dir: str = "out/royale"
+    dit: str = Field(min_length=1)
+    vae: str = Field(min_length=1)
+    text_encoder: str = Field(min_length=1)
+    prompt: str = ""
+    seed: int = 42
+    width: int = Field(default=512, ge=16)
+    height: int = Field(default=512, ge=16)
+    device: str = "cuda"
+    blocks_to_swap: int = Field(default=0, ge=0)
+    max_checkpoints: int = Field(default=32, ge=1, le=64)
+
+
 class JobCreateRequest(BaseModel):
     kind: str = Field(min_length=1)
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -244,6 +295,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     workbench = WorkbenchCommandService(root)
     metadata = MetadataService(root)
     catalog = LoraCatalogService(root)
+    repair = RepairService(root)
 
     app = FastAPI(
         title="Fizgig Browser API",
@@ -445,6 +497,126 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _tool_job("extract", command)
 
+    @app.get("/api/repair/default-state")
+    def get_repair_default_state(family: str = Query(default="klein", min_length=1)) -> dict[str, Any]:
+        try:
+            return {"family": family, "state": repair.default_state(family)}
+        except (RepairError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/repair/bake/preview")
+    def preview_repair_bake(request: RepairBakeRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            paths = repair.validate(**values)
+            return {
+                "operation": "repair.bake",
+                "primary": paths["primary"],
+                "donor": paths["donor"],
+                "output": paths["output"],
+                "execution_ready": True,
+            }
+        except (RepairError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/repair/bake/start")
+    def start_repair_bake(request: RepairBakeRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            repair.validate(**values)
+        except (RepairError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def run(context, payload):
+            context.update(progress=10, message="Baking repaired LoRA")
+            result = repair.bake(**payload)
+            context.update(progress=100, message="Repair bake complete")
+            return result
+
+        return jobs.create("repair.bake", values, run).as_dict()
+
+    @app.post("/api/repair/render/preview")
+    def preview_repair_render(request: RepairRenderRequest) -> dict[str, Any]:
+        """Validate a GPU preview request without loading model weights."""
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            repair.validate_state(values["state"])
+            repair._input(values["primary"], "primary LoRA")
+            if values.get("donor", ""):
+                repair._input(values["donor"], "donor LoRA")
+            output_path = repair.paths.resolve_child(values["output"])
+            if output_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+                raise RepairError("preview output must be a PNG, JPEG, or WebP file")
+            for key in ("dit", "vae", "text_encoder"):
+                repair._input(values[key], key.replace("_", " "))
+            repair.default_state(values["family"])
+            return {"operation": "repair.render", "family": values["family"], "output": values["output"], "execution_ready": True}
+        except (RepairError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/repair/render/start")
+    def start_repair_render(request: RepairRenderRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            repair.default_state(values["family"])
+            for key in ("dit", "vae", "text_encoder"):
+                repair._input(values[key], key.replace("_", " "))
+        except RepairError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def run(context, payload):
+            context.update(progress=5, message="Loading Repair Studio model")
+            result = repair.render_preview(**payload)
+            context.update(progress=100, message="Repair preview complete")
+            return result
+
+        return jobs.create("repair.render", values, run).as_dict()
+
+    @app.post("/api/lora/explorer/render/start")
+    def start_explorer_render(request: ExplorerRenderRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            repair.validate_state(values["state"])
+            for key in ("primary", "dit", "vae", "text_encoder"):
+                repair._input(values[key], key.replace("_", " "))
+            if values.get("donor", ""):
+                repair._input(values["donor"], "donor LoRA")
+            repair.paths.resolve_child(values["output_dir"])
+            repair.default_state(values["family"])
+        except (RepairError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def run(context, payload):
+            context.update(progress=5, message="Loading Explorer model")
+            result = repair.render_explorer_variants(**payload)
+            context.update(progress=100, message="Explorer variants complete")
+            return result
+
+        return jobs.create("lora.explorer.render", values, run).as_dict()
+
+    @app.post("/api/lora/royale/render/start")
+    def start_royale_render(request: RoyaleRenderRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            folder = catalog._folder(values["folder"])
+            from fizgig.lora_royale.scan import scan_checkpoints
+            if not scan_checkpoints(str(folder)):
+                raise CatalogError("no SafeTensors checkpoints found")
+            for key in ("dit", "vae", "text_encoder"):
+                repair._input(values[key], key.replace("_", " "))
+            repair.paths.resolve_child(values["output_dir"])
+            repair.default_state(values["family"])
+        except (CatalogError, RepairError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def run(context, payload):
+            context.update(progress=5, message="Loading Royale model")
+            result = repair.render_royale_checkpoints(**payload)
+            context.update(progress=100, message="Royale sequence complete")
+            return result
+
+        return jobs.create("lora.royale.render", values, run).as_dict()
+
     @app.get("/api/metadata/inspect")
     def inspect_metadata(path: str = Query(min_length=1)) -> dict[str, Any]:
         try:
@@ -500,6 +672,17 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except OSError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/api/artifacts/download")
+    def download_artifact(path: str = Query(min_length=1)) -> FileResponse:
+        """Download a workspace artifact without exposing host paths."""
+        try:
+            artifact = WorkspacePaths(root).resolve_child(path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="artifact must stay inside the workspace") from exc
+        if not artifact.is_file():
+            raise HTTPException(status_code=404, detail="artifact not found")
+        return FileResponse(artifact, filename=artifact.name)
 
     @app.post("/api/jobs")
     def create_job(request: JobCreateRequest) -> dict[str, Any]:
@@ -567,6 +750,17 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
         except PresetError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"architecture": architecture, "name": name}
+
+    # A production image can build the React bundle into web/dist. Mount it
+    # last so all /api routes above retain precedence while the same HTTP
+    # origin serves the browser app without Vite or noVNC.
+    frontend_dist = Path(os.environ.get("FIZGIG_FRONTEND_DIST", str(root / "web" / "dist"))).expanduser().resolve()
+    if not frontend_dist.is_dir():
+        source_dist = Path(__file__).resolve().parents[3] / "web" / "dist"
+        if source_dist.is_dir():
+            frontend_dist = source_dist
+    if frontend_dist.is_dir() and (frontend_dist / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 
     return app
 

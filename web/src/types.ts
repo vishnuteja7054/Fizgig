@@ -10,7 +10,8 @@ export type SectionKey =
   | "royale"
   | "extract"
   | "metadata"
-  | "preferences";
+  | "preferences"
+  | "jobs";
 
 export type DatasetKind = "image" | "video" | "audio";
 

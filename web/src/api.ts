@@ -2,6 +2,11 @@ import type { DatasetItem, DatasetScan } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
+export function artifactDownloadUrl(path: string) {
+  const params = new URLSearchParams({ path });
+  return `${API_BASE}/api/artifacts/download?${params}`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!(init?.body instanceof FormData)) {
@@ -215,6 +220,74 @@ export function loadLoraRoyale(folder: string) {
   return request<{ folder: string; items: LoraCatalogItem[] }>(`/api/lora/royale?${params}`);
 }
 
+export function startExplorerRender(values: {
+  family: string; primary: string; donor?: string; output_dir: string; state: Record<string, unknown>;
+  dit: string; vae: string; text_encoder: string; variants: number; intensity: number; structure: number;
+}) {
+  return request<JobRecord>("/api/lora/explorer/render/start", { method: "POST", body: JSON.stringify(values) });
+}
+
+export function startRoyaleRender(values: {
+  family: string; folder: string; output_dir: string; dit: string; vae: string; text_encoder: string;
+  prompt: string; seed: number; width: number; height: number; max_checkpoints: number;
+}) {
+  return request<JobRecord>("/api/lora/royale/render/start", { method: "POST", body: JSON.stringify(values) });
+}
+
+export interface RepairStateResponse {
+  family: string;
+  state: Record<string, unknown>;
+}
+
+export interface RepairBakeValues {
+  primary: string;
+  donor?: string;
+  output: string;
+  state: Record<string, unknown>;
+}
+
+export function loadRepairDefaultState(family: string) {
+  const params = new URLSearchParams({ family });
+  return request<RepairStateResponse>(`/api/repair/default-state?${params}`);
+}
+
+export function previewRepairBake(values: RepairBakeValues) {
+  return request<{ operation: string; primary: string; donor: string; output: string; execution_ready: boolean }>(
+    "/api/repair/bake/preview",
+    { method: "POST", body: JSON.stringify(values) },
+  );
+}
+
+export function startRepairBake(values: RepairBakeValues) {
+  return request<JobRecord>("/api/repair/bake/start", {
+    method: "POST",
+    body: JSON.stringify(values),
+  });
+}
+
+export interface RepairRenderValues extends RepairBakeValues {
+  family: string;
+  dit: string;
+  vae: string;
+  text_encoder: string;
+  device?: string;
+  blocks_to_swap?: number;
+}
+
+export function previewRepairRender(values: RepairRenderValues) {
+  return request<{ operation: string; family: string; output: string; execution_ready: boolean }>(
+    "/api/repair/render/preview",
+    { method: "POST", body: JSON.stringify(values) },
+  );
+}
+
+export function startRepairRender(values: RepairRenderValues) {
+  return request<JobRecord>("/api/repair/render/start", {
+    method: "POST",
+    body: JSON.stringify(values),
+  });
+}
+
 export function writeTrainingDatasetConfig(values: {
   name: string;
   folder: string;
@@ -284,6 +357,14 @@ export function startResizeOnlyJob(folder: string, targetMegapixels: number, rep
 
 export function getJob(jobId: string) {
   return request<JobRecord>(`/api/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export function listJobs() {
+  return request<{ jobs: JobRecord[] }>("/api/jobs?limit=100");
+}
+
+export function cancelJob(jobId: string) {
+  return request<JobRecord>(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 }
 
 export function readCaption(item: string): Promise<{ item: string; text: string }> {

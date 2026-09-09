@@ -39,10 +39,14 @@ Initial endpoints:
 - `GET /api/metadata/inspect?path=...`
 - `GET /api/lora/explorer?folder=...`
 - `GET /api/lora/royale?folder=...`
+- `GET /api/repair/default-state?family=...`
+- `POST /api/repair/bake/{preview,start}`
+- `POST /api/repair/render/{preview,start}` (GPU preview job; model paths are server-side)
 - `GET/POST /api/jobs`
 - `GET /api/jobs/{id}`
 - `GET /api/jobs/{id}/log`
 - `POST /api/jobs/{id}/cancel`
+- `GET /api/artifacts/download?path=...`
 - `POST /api/datasets/find-replace`
 - `GET/PUT/DELETE /api/presets/{architecture}/{name}`
 - `GET /api/presets/{architecture}`
@@ -50,3 +54,18 @@ Initial endpoints:
 This API is private-development infrastructure at this stage. Authentication,
 workspace identity, upload limits, and job authorization are required before
 public deployment.
+
+## Modal deployment
+
+`modal_app.py` installs the full model requirements plus web requirements,
+builds `web/`, serves the React bundle and FastAPI API from one origin, and
+mounts persistent workspace/model Volumes at `/workspace` and `/models`:
+
+```bash
+modal deploy modal_app.py
+```
+
+The example uses an L40S worker because Repair/Explorer/Royale and training are
+GPU-backed. Populate the `fizgig-models` Volume at the paths used in
+Preferences before starting model jobs. Adjust the GPU class if needed. Do not expose the URL
+publicly until authentication and workspace isolation are added.

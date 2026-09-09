@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { clearSampleOverride, deletePreset, getJob, importDataset, inspectMetadata, listPresets, loadLoraExplorer, loadLoraRoyale, loadPreset, loadWorkspaceState, previewExtract, previewProfile, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startProfile, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
+import { artifactDownloadUrl, cancelJob, clearSampleOverride, deletePreset, getJob, importDataset, inspectMetadata, listJobs, listPresets, loadLoraExplorer, loadLoraRoyale, loadPreset, loadRepairDefaultState, loadWorkspaceState, previewExtract, previewProfile, previewRepairBake, previewRepairRender, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startExplorerRender, startProfile, startRepairBake, startRepairRender, startResizeOnlyJob, startRoyaleRender, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
 import type { ImagePrepResult, LoraCatalogItem, MetadataInspection, TrainingCommandPreview, TrainingConfigResult, WorkbenchPreview } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
@@ -17,6 +17,7 @@ const sections: Array<{ key: SectionKey; label: string; icon: string; group?: st
   { key: "extract", label: "Extract", icon: "⇩", group: "Workbench" },
   { key: "metadata", label: "Metadata", icon: "≡", group: "Tools" },
   { key: "preferences", label: "Preferences", icon: "⚙", group: "Tools" },
+  { key: "jobs", label: "Jobs", icon: "◷", group: "Tools" },
 ];
 
 function App() {
@@ -63,9 +64,21 @@ function App() {
   const [extractSamples, setExtractSamples] = useState("0");
   const [extractRank, setExtractRank] = useState("2");
   const [extractPreview, setExtractPreview] = useState<WorkbenchPreview | null>(null);
+  const [repairFamily, setRepairFamily] = useState("klein");
+  const [repairPrimary, setRepairPrimary] = useState("");
+  const [repairDonor, setRepairDonor] = useState("");
+  const [repairOutput, setRepairOutput] = useState("output_loras/repaired.safetensors");
+  const [repairPreviewOutput, setRepairPreviewOutput] = useState("out/repair_preview.png");
+  const [repairStateJson, setRepairStateJson] = useState("{}\n");
+  const [repairPreview, setRepairPreview] = useState<{ operation: string; primary: string; donor: string; output: string; execution_ready: boolean } | null>(null);
+  const [repairRenderPreview, setRepairRenderPreview] = useState<{ operation: string; family: string; output: string; execution_ready: boolean } | null>(null);
   const [metadataPath, setMetadataPath] = useState("");
   const [metadataResult, setMetadataResult] = useState<MetadataInspection | null>(null);
   const [catalogFolder, setCatalogFolder] = useState("output_loras");
+  const [catalogFamily, setCatalogFamily] = useState("klein");
+  const [catalogPrimary, setCatalogPrimary] = useState("");
+  const [catalogPrompt, setCatalogPrompt] = useState("A high quality photo");
+  const [catalogOutput, setCatalogOutput] = useState("out/workbench");
   const [explorerItems, setExplorerItems] = useState<LoraCatalogItem[]>([]);
   const [royaleItems, setRoyaleItems] = useState<LoraCatalogItem[]>([]);
   const [presetNames, setPresetNames] = useState<string[]>([]);
@@ -75,6 +88,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("Ready");
   const [error, setError] = useState("");
+  const [jobs, setJobs] = useState<import("./api").JobRecord[]>([]);
 
   const captionCount = useMemo(() => items.filter((item) => item.has_caption).length, [items]);
   const missingCount = items.length - captionCount;
@@ -346,6 +360,79 @@ function App() {
     finally { setLoading(false); }
   }
 
+  async function loadRepairState() {
+    setLoading(true); setError("");
+    try {
+      const result = await loadRepairDefaultState(repairFamily);
+      setRepairStateJson(JSON.stringify(result.state, null, 2));
+      setMessage(`${repairFamily} slider state loaded`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load Repair Studio state"); setMessage("Repair state failed"); }
+    finally { setLoading(false); }
+  }
+
+  function repairValues() {
+    let state: Record<string, unknown>;
+    try { state = JSON.parse(repairStateJson) as Record<string, unknown>; }
+    catch { throw new Error("Slider state must be valid JSON."); }
+    if (!state || Array.isArray(state)) throw new Error("Slider state must be a JSON object.");
+    return { primary: repairPrimary.trim(), donor: repairDonor.trim(), output: repairOutput.trim(), state };
+  }
+
+  function updateRepairBlock(blockId: string, field: "primary_strength" | "donor_strength" | "primary_enabled" | "donor_enabled", value: number | boolean) {
+    try {
+      const state = JSON.parse(repairStateJson) as { blocks?: Record<string, Record<string, unknown>> };
+      const blocks = state.blocks ?? {};
+      blocks[blockId] = { primary_enabled: true, primary_strength: 1, donor_enabled: true, donor_strength: 0, ...(blocks[blockId] ?? {}), [field]: value };
+      setRepairStateJson(JSON.stringify({ ...state, blocks }, null, 2));
+    } catch {
+      setError("Load a valid slider state before editing individual blocks.");
+    }
+  }
+
+  async function previewRepair() {
+    setLoading(true); setError("");
+    try { setRepairPreview(await previewRepairBake(repairValues())); setMessage("Repair bake validated; nothing has started"); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to validate repair bake"); setMessage("Repair validation failed"); }
+    finally { setLoading(false); }
+  }
+
+  function repairRenderValues() {
+    return { ...repairValues(), output: repairPreviewOutput.trim(), family: repairFamily, dit: trainingDit.trim(), vae: trainingVae.trim(), text_encoder: trainingTextEncoder.trim(), blocks_to_swap: Number(trainingBlocksSwap) || 0 };
+  }
+
+  async function previewRepairRenderJob() {
+    setLoading(true); setError("");
+    try { setRepairRenderPreview(await previewRepairRender(repairRenderValues())); setMessage("Repair render validated; no model weights loaded"); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to validate repair render"); setMessage("Repair render validation failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function runRepairRender() {
+    if (!window.confirm("Start a GPU Repair Studio preview now?")) return;
+    setLoading(true); setError("");
+    try {
+      const started = await startRepairRender(repairRenderValues());
+      let job = started;
+      while (["queued", "starting", "running", "cancel_requested"].includes(job.status)) { setMessage(`${job.message} · ${Math.round(job.progress)}%`); await new Promise((resolve) => window.setTimeout(resolve, 900)); job = await getJob(started.id); }
+      if (job.status !== "completed") throw new Error(job.error || `Repair render ${job.status}`);
+      setMessage(`Repair preview saved to ${String((job.result as { output_relative_path?: string })?.output_relative_path || repairPreviewOutput)}`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to render Repair Studio preview"); setMessage("Repair render failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function runRepair() {
+    if (!window.confirm("Bake this repaired LoRA now?")) return;
+    setLoading(true); setError("");
+    try {
+      const started = await startRepairBake(repairValues());
+      let job = started;
+      while (["queued", "starting", "running", "cancel_requested"].includes(job.status)) { setMessage(`${job.message} · ${Math.round(job.progress)}%`); await new Promise((resolve) => window.setTimeout(resolve, 700)); job = await getJob(started.id); }
+      if (job.status !== "completed") throw new Error(job.error || `Repair bake ${job.status}`);
+      setMessage("Repair bake completed");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to bake repaired LoRA"); setMessage("Repair bake failed"); }
+    finally { setLoading(false); }
+  }
+
   async function savePreferences() {
     setLoading(true); setError("");
     try {
@@ -369,6 +456,36 @@ function App() {
     setLoading(true); setError("");
     try { const result = await loadLoraRoyale(catalogFolder.trim()); setRoyaleItems(result.items); setMessage(`Found ${result.items.length} checkpoint${result.items.length === 1 ? "" : "s"}`); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to scan checkpoints"); setMessage("Royale scan failed"); }
+    finally { setLoading(false); }
+  }
+
+  function catalogModels() {
+    if (!trainingDit.trim() || !trainingVae.trim() || !trainingTextEncoder.trim()) throw new Error("Set DiT, VAE, and text encoder paths in Preferences first.");
+    return { dit: trainingDit.trim(), vae: trainingVae.trim(), text_encoder: trainingTextEncoder.trim() };
+  }
+
+  async function runExplorerRender() {
+    setLoading(true); setError("");
+    try {
+      const state = JSON.parse(repairStateJson) as Record<string, unknown>;
+      const started = await startExplorerRender({ family: catalogFamily, primary: catalogPrimary.trim(), output_dir: `${catalogOutput.trim() || "out/workbench"}/explorer`, state, ...catalogModels(), variants: 4, intensity: 0.5, structure: 1 });
+      let job = started;
+      while (["queued", "starting", "running", "cancel_requested"].includes(job.status)) { setMessage(`${job.message} · ${Math.round(job.progress)}%`); await new Promise((resolve) => window.setTimeout(resolve, 900)); job = await getJob(started.id); }
+      if (job.status !== "completed") throw new Error(job.error || `Explorer render ${job.status}`);
+      setMessage("Explorer variants completed; download them from the output folder");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to render Explorer variants"); setMessage("Explorer render failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function runRoyaleRender() {
+    setLoading(true); setError("");
+    try {
+      const started = await startRoyaleRender({ family: catalogFamily, folder: catalogFolder.trim(), output_dir: `${catalogOutput.trim() || "out/workbench"}/royale`, prompt: catalogPrompt, seed: 42, width: 512, height: 512, max_checkpoints: 32, ...catalogModels() });
+      let job = started;
+      while (["queued", "starting", "running", "cancel_requested"].includes(job.status)) { setMessage(`${job.message} · ${Math.round(job.progress)}%`); await new Promise((resolve) => window.setTimeout(resolve, 900)); job = await getJob(started.id); }
+      if (job.status !== "completed") throw new Error(job.error || `Royale render ${job.status}`);
+      setMessage("Royale sequence completed; download the rendered checkpoints");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to render Royale sequence"); setMessage("Royale render failed"); }
     finally { setLoading(false); }
   }
 
@@ -522,6 +639,16 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let disposed = false;
+    async function refreshJobs() {
+      try { const result = await listJobs(); if (!disposed) setJobs(result.jobs); } catch { /* API may be restarting */ }
+    }
+    void refreshJobs();
+    const timer = window.setInterval(refreshJobs, 2000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
     void refreshPresets(trainingArchitecture);
   }, [trainingArchitecture]);
 
@@ -556,7 +683,7 @@ function App() {
                 >
                   <span className="nav-icon">{section.icon}</span>
                   <span>{section.label}</span>
-                  {!["start", "captions", "training"].includes(section.key) && <span className="soon-dot" />}
+                  {!["start", "prep", "captions", "samples", "training", "profiler", "repair", "explorer", "royale", "extract", "metadata", "preferences"].includes(section.key) && <span className="soon-dot" />}
                 </button>
               ))}
             </div>
@@ -705,12 +832,14 @@ function App() {
             />
           )}
           {active === "profiler" && <ToolPage title="Profiler" eyebrow="WORKBENCH / PROFILE" description="Generate a Krea 2 weight-only HTML report from a LoRA." source={profilerLora} setSource={setProfilerLora} output={profilerOutput} setOutput={setProfilerOutput} sourceLabel="LoRA file" preview={profilerPreview} loading={loading} onPreview={previewProfiler} onStart={runProfiler} />}
+          {active === "repair" && <RepairPage family={repairFamily} setFamily={setRepairFamily} primary={repairPrimary} setPrimary={setRepairPrimary} donor={repairDonor} setDonor={setRepairDonor} output={repairOutput} setOutput={setRepairOutput} previewOutput={repairPreviewOutput} setPreviewOutput={setRepairPreviewOutput} dit={trainingDit} vae={trainingVae} textEncoder={trainingTextEncoder} stateJson={repairStateJson} setStateJson={setRepairStateJson} onBlockChange={updateRepairBlock} preview={repairPreview} renderPreview={repairRenderPreview} loading={loading} onLoadState={loadRepairState} onPreview={previewRepair} onStart={runRepair} onRenderPreview={previewRepairRenderJob} onRender={runRepairRender} />}
           {active === "extract" && <ToolPage title="Extract" eyebrow="TOOLS / EXTRACT" description="Extract a lower-rank LoRA with the existing Fizgig SVD engine." source={extractSource} setSource={setExtractSource} output={extractOutput} setOutput={setExtractOutput} sourceLabel="Source LoRA" extra={<><label className="prep-control"><span>Samples (0 = weight-only)</span><input type="number" min="0" value={extractSamples} onChange={(event) => setExtractSamples(event.target.value)} /></label><label className="prep-control"><span>Target rank</span><input type="number" min="1" value={extractRank} onChange={(event) => setExtractRank(event.target.value)} /></label></>} preview={extractPreview} loading={loading} onPreview={previewExtractor} onStart={runExtractor} />}
           {active === "metadata" && <MetadataPage path={metadataPath} setPath={setMetadataPath} result={metadataResult} loading={loading} onInspect={inspectMetadataFile} />}
           {active === "preferences" && <PreferencesPage dit={trainingDit} setDit={setTrainingDit} vae={trainingVae} setVae={setTrainingVae} textEncoder={trainingTextEncoder} setTextEncoder={setTrainingTextEncoder} outputDir={trainingOutputDir} setOutputDir={setTrainingOutputDir} loading={loading} onSave={savePreferences} />}
-          {active === "explorer" && <CatalogPage title="LoRA Explorer" description="Browse workspace LoRAs and inspect their header metadata." folder={catalogFolder} setFolder={setCatalogFolder} items={explorerItems} mode="explorer" loading={loading} onScan={scanExplorer} />}
-          {active === "royale" && <CatalogPage title="LoRA Royale" description="Scan epoch checkpoints in the same order used by the desktop Royale workflow." folder={catalogFolder} setFolder={setCatalogFolder} items={royaleItems} mode="royale" loading={loading} onScan={scanRoyale} />}
-          {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && active !== "samples" && active !== "profiler" && active !== "extract" && <ComingSoonPage section={active} />}
+          {active === "explorer" && <CatalogPage title="LoRA Explorer" description="Browse workspace LoRAs, inspect metadata, and render guided variants from the current Repair Studio state." folder={catalogFolder} setFolder={setCatalogFolder} items={explorerItems} mode="explorer" loading={loading} onScan={scanExplorer} family={catalogFamily} setFamily={setCatalogFamily} primary={catalogPrimary} setPrimary={setCatalogPrimary} prompt={catalogPrompt} setPrompt={setCatalogPrompt} output={catalogOutput} setOutput={setCatalogOutput} onRender={runExplorerRender} />}
+          {active === "royale" && <CatalogPage title="LoRA Royale" description="Scan epoch checkpoints, render the sequence with one resident engine, and download the generated frames." folder={catalogFolder} setFolder={setCatalogFolder} items={royaleItems} mode="royale" loading={loading} onScan={scanRoyale} family={catalogFamily} setFamily={setCatalogFamily} primary={catalogPrimary} setPrimary={setCatalogPrimary} prompt={catalogPrompt} setPrompt={setCatalogPrompt} output={catalogOutput} setOutput={setCatalogOutput} onRender={runRoyaleRender} />}
+          {active === "jobs" && <JobsPage jobs={jobs} onCancel={async (id) => { try { await cancelJob(id); const result = await listJobs(); setJobs(result.jobs); setMessage("Cancellation requested"); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to cancel job"); } }} />}
+          {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && active !== "samples" && active !== "profiler" && active !== "repair" && active !== "extract" && active !== "metadata" && active !== "preferences" && active !== "explorer" && active !== "royale" && active !== "jobs" && <ComingSoonPage section={active} />}
         </div>
       </main>
     </div>
@@ -984,6 +1113,56 @@ function SamplesPage(props: {
   </>;
 }
 
+function RepairPage(props: {
+  family: string;
+  setFamily: (value: string) => void;
+  primary: string;
+  setPrimary: (value: string) => void;
+  donor: string;
+  setDonor: (value: string) => void;
+  output: string;
+  setOutput: (value: string) => void;
+  previewOutput: string;
+  setPreviewOutput: (value: string) => void;
+  dit: string;
+  vae: string;
+  textEncoder: string;
+  stateJson: string;
+  setStateJson: (value: string) => void;
+  onBlockChange: (blockId: string, field: "primary_strength" | "donor_strength" | "primary_enabled" | "donor_enabled", value: number | boolean) => void;
+  preview: { operation: string; primary: string; donor: string; output: string; execution_ready: boolean } | null;
+  renderPreview: { operation: string; family: string; output: string; execution_ready: boolean } | null;
+  loading: boolean;
+  onLoadState: () => void;
+  onPreview: () => void;
+  onStart: () => void;
+  onRenderPreview: () => void;
+  onRender: () => void;
+}) {
+  return <>
+    <section className="card prep-banner"><div><div className="section-kicker">WORKBENCH / REPAIR STUDIO</div><h2>Bake a repaired LoRA</h2><p>Edit the existing Fizgig slider state as JSON, validate all workspace paths, and run the desktop-compatible bake operation as a durable browser job.</p></div><span className="pill accent">BAKE JOB</span></section>
+    <section className="card prep-options"><div className="section-heading"><div><div className="section-kicker">INPUT / OUTPUT</div><h3>Configure repair sources</h3></div><span className="pill">WORKSPACE-SAFE OUTPUT</span></div>
+      <div className="training-form-grid"><label className="prep-control"><span>Model family</span><select value={props.family} onChange={(event) => props.setFamily(event.target.value)}><option value="klein">Flux Klein 9B</option><option value="krea2">Krea 2</option><option value="h3">MiniMax H3</option></select></label><label className="prep-control"><span>Primary LoRA</span><input value={props.primary} onChange={(event) => props.setPrimary(event.target.value)} placeholder="output_loras/primary.safetensors" /></label><label className="prep-control"><span>Optional donor LoRA</span><input value={props.donor} onChange={(event) => props.setDonor(event.target.value)} placeholder="output_loras/donor.safetensors" /></label><label className="prep-control"><span>Baked LoRA output</span><input value={props.output} onChange={(event) => props.setOutput(event.target.value)} /></label><label className="prep-control"><span>DiT model</span><input value={props.dit} readOnly placeholder="Set in Preferences" /></label><label className="prep-control"><span>VAE model</span><input value={props.vae} readOnly placeholder="Set in Preferences" /></label><label className="prep-control"><span>Text encoder</span><input value={props.textEncoder} readOnly placeholder="Set in Preferences" /></label><label className="prep-control"><span>Preview image output</span><input value={props.previewOutput} onChange={(event) => props.setPreviewOutput(event.target.value)} /></label></div>
+      <div className="prep-actions"><button className="button ghost" disabled={props.loading} onClick={props.onLoadState}>Load default sliders</button><span className="helper-text">GPU preview rendering will be attached as a separate stage; this action only writes the repaired SafeTensors file.</span></div>
+    </section>
+    <section className="card prep-options"><div className="section-heading"><div><div className="section-kicker">SLIDER STATE</div><h3>Block controls</h3></div><span className="pill">DESKTOP COMPATIBLE</span></div><RepairBlockGrid stateJson={props.stateJson} onChange={props.onBlockChange} /><details className="advanced-state"><summary>Advanced JSON state</summary><textarea className="code-editor" value={props.stateJson} onChange={(event) => props.setStateJson(event.target.value)} spellCheck={false} rows={18} /></details><div className="prep-actions"><button className="button ghost" disabled={props.loading} onClick={props.onPreview}>Validate bake</button><button className="button primary" disabled={props.loading || !props.preview} onClick={props.onStart}>Bake repaired LoRA <span>→</span></button></div>{props.preview && <div className="command-preview"><div className="section-kicker">VALIDATED OPERATION</div><pre>{JSON.stringify(props.preview, null, 2)}</pre><small>Validation checked input existence, slider schema, and workspace-safe output.</small></div>}</section>
+    <section className="card prep-options"><div className="section-heading"><div><div className="section-kicker">GPU PREVIEW</div><h3>Render the current slider state</h3></div><span className="pill accent">MODEL JOB</span></div><p className="helper-text">Preview uses the selected model family and the paths saved in Preferences. Validation never loads weights.</p><div className="prep-actions"><button className="button ghost" disabled={props.loading} onClick={props.onRenderPreview}>Validate render</button><button className="button primary" disabled={props.loading || !props.renderPreview} onClick={props.onRender}>Render preview <span>→</span></button></div>{props.renderPreview && <div className="command-preview"><div className="section-kicker">VALIDATED RENDER</div><pre>{JSON.stringify(props.renderPreview, null, 2)}</pre></div>}</section>
+  </>;
+}
+
+function RepairBlockGrid(props: { stateJson: string; onChange: (blockId: string, field: "primary_strength" | "donor_strength" | "primary_enabled" | "donor_enabled", value: number | boolean) => void }) {
+  let blocks: Record<string, { primary_enabled?: boolean; primary_strength?: number; donor_enabled?: boolean; donor_strength?: number }> = {};
+  try {
+    const parsed = JSON.parse(props.stateJson) as { blocks?: Record<string, { primary_enabled?: boolean; primary_strength?: number; donor_enabled?: boolean; donor_strength?: number }> };
+    blocks = parsed.blocks ?? {};
+  } catch {
+    return <div className="empty-state repair-empty">Enter valid JSON or load a default slider state.</div>;
+  }
+  const entries = Object.entries(blocks);
+  if (entries.length === 0) return <div className="empty-state repair-empty">Load default sliders to edit the block grid.</div>;
+  return <div className="repair-grid">{entries.map(([blockId, block]) => <div className="repair-block" key={blockId}><div className="repair-block-title"><strong>{blockId.replace("_", " ")}</strong><span>{block.primary_enabled === false ? "off" : "on"}</span></div><label><input type="checkbox" checked={block.primary_enabled !== false} onChange={(event) => props.onChange(blockId, "primary_enabled", event.target.checked)} /> Primary</label><input className="repair-range" type="range" min="-3" max="3" step="0.05" value={block.primary_strength ?? 1} onChange={(event) => props.onChange(blockId, "primary_strength", Number(event.target.value))} /><output>{Number(block.primary_strength ?? 1).toFixed(2)}</output><label><input type="checkbox" checked={block.donor_enabled !== false} onChange={(event) => props.onChange(blockId, "donor_enabled", event.target.checked)} /> Donor</label><input className="repair-range donor" type="range" min="-3" max="3" step="0.05" value={block.donor_strength ?? 0} onChange={(event) => props.onChange(blockId, "donor_strength", Number(event.target.value))} /><output>{Number(block.donor_strength ?? 0).toFixed(2)}</output></div>)}</div>;
+}
+
 function ToolPage(props: {
   title: string;
   eyebrow: string;
@@ -1024,8 +1203,30 @@ function PreferencesPage(props: { dit: string; setDit: (value: string) => void; 
   </>;
 }
 
-function CatalogPage(props: { title: string; description: string; folder: string; setFolder: (value: string) => void; items: LoraCatalogItem[]; mode: "explorer" | "royale"; loading: boolean; onScan: () => void }) {
-  return <><section className="card prep-banner"><div><div className="section-kicker">WORKBENCH / {props.mode.toUpperCase()}</div><h2>{props.title}</h2><p>{props.description}</p></div><span className="pill accent">CATALOG</span></section><section className="card prep-options"><div className="field-row"><label className="path-field"><span className="field-icon">⌁</span><input value={props.folder} onChange={(event) => props.setFolder(event.target.value)} placeholder="output_loras" /></label><button className="button primary" disabled={props.loading || !props.folder.trim()} onClick={props.onScan}>Scan <span>→</span></button></div></section><section className="card table-card"><div className="section-heading"><div><div className="section-kicker">CHECKPOINT INVENTORY</div><h3>{props.items.length} files</h3></div></div>{props.items.length === 0 ? <EmptyState text="Scan a workspace folder to list SafeTensors checkpoints." /> : <div className="table-wrap"><table><thead><tr><th>{props.mode === "royale" ? "Epoch / label" : "Name"}</th><th>Path</th><th>Size</th><th>{props.mode === "explorer" ? "Tensors" : "Status"}</th></tr></thead><tbody>{props.items.map((item) => <tr key={item.relative_path}><td>{item.label ?? item.name}</td><td>{item.relative_path}</td><td>{(item.size_bytes / 1024 / 1024).toFixed(1)} MB</td><td>{props.mode === "explorer" ? (item.tensor_count ?? "—") : <span className="caption-state ready">Ready to render</span>}</td></tr>)}</tbody></table></div>}</section></>;
+function CatalogPage(props: { title: string; description: string; folder: string; setFolder: (value: string) => void; items: LoraCatalogItem[]; mode: "explorer" | "royale"; loading: boolean; onScan: () => void; family: string; setFamily: (value: string) => void; primary: string; setPrimary: (value: string) => void; prompt: string; setPrompt: (value: string) => void; output: string; setOutput: (value: string) => void; onRender: () => void }) {
+  return <><section className="card prep-banner"><div><div className="section-kicker">WORKBENCH / {props.mode.toUpperCase()}</div><h2>{props.title}</h2><p>{props.description}</p></div><span className="pill accent">CATALOG</span></section><section className="card prep-options"><div className="field-row"><label className="path-field"><span className="field-icon">⌁</span><input value={props.folder} onChange={(event) => props.setFolder(event.target.value)} placeholder="output_loras" /></label><button className="button primary" disabled={props.loading || !props.folder.trim()} onClick={props.onScan}>Scan <span>→</span></button></div><div className="training-form-grid catalog-render-form"><label className="prep-control"><span>Family</span><select value={props.family} onChange={(event) => props.setFamily(event.target.value)}><option value="klein">Flux Klein 9B</option><option value="krea2">Krea 2</option><option value="h3">MiniMax H3</option></select></label>{props.mode === "explorer" && <label className="prep-control"><span>Primary LoRA</span><input value={props.primary} onChange={(event) => props.setPrimary(event.target.value)} placeholder="output_loras/model.safetensors" /></label>}<label className="prep-control"><span>Prompt</span><input value={props.prompt} onChange={(event) => props.setPrompt(event.target.value)} /></label><label className="prep-control"><span>Rendered output folder</span><input value={props.output} onChange={(event) => props.setOutput(event.target.value)} /></label></div><div className="prep-actions"><button className="button ghost" disabled={props.loading || (props.mode === "explorer" && !props.primary.trim())} onClick={props.onRender}>{props.mode === "explorer" ? "Render variants" : "Render sequence"} <span>→</span></button><span className="helper-text">Model paths come from Preferences. GPU work continues as a durable job after refresh.</span></div></section><section className="card table-card"><div className="section-heading"><div><div className="section-kicker">CHECKPOINT INVENTORY</div><h3>{props.items.length} files</h3></div></div>{props.items.length === 0 ? <EmptyState text="Scan a workspace folder to list SafeTensors checkpoints." /> : <div className="table-wrap"><table><thead><tr><th>{props.mode === "royale" ? "Epoch / label" : "Name"}</th><th>Path</th><th>Size</th><th>{props.mode === "explorer" ? "Tensors" : "Status"}</th><th /></tr></thead><tbody>{props.items.map((item) => <tr key={item.relative_path}><td>{item.label ?? item.name}</td><td><a className="file-link" href={artifactDownloadUrl(item.relative_path)}>{item.relative_path}</a></td><td>{(item.size_bytes / 1024 / 1024).toFixed(1)} MB</td><td>{props.mode === "explorer" ? (item.tensor_count ?? "—") : <span className="caption-state ready">Ready to render</span>}</td><td><a className="row-action" href={artifactDownloadUrl(item.relative_path)}>Download</a></td></tr>)}</tbody></table></div>}</section></>;
+}
+
+function JobsPage(props: { jobs: import("./api").JobRecord[]; onCancel: (id: string) => void }) {
+  const active = props.jobs.filter((job) => ["queued", "starting", "running", "cancel_requested"].includes(job.status));
+  return <><section className="card prep-banner"><div><div className="section-kicker">WORKSPACE / JOBS</div><h2>Durable work queue</h2><p>Jobs are persisted in the workspace, so refreshing or reconnecting the browser does not lose their state.</p></div><span className="pill accent">{active.length} ACTIVE</span></section><section className="card table-card"><div className="section-heading"><div><div className="section-kicker">RECENT OPERATIONS</div><h3>{props.jobs.length} jobs</h3></div></div>{props.jobs.length === 0 ? <EmptyState text="No browser jobs have run yet." /> : <div className="table-wrap"><table><thead><tr><th>Operation</th><th>Status</th><th>Progress</th><th>Message</th><th /></tr></thead><tbody>{props.jobs.map((job) => <tr key={job.id}><td><strong>{job.kind}</strong><small className="job-id">{job.id}</small></td><td><span className={`caption-state ${job.status === "completed" ? "ready" : job.status === "failed" ? "missing" : ""}`}>{job.status}</span></td><td><div className="job-progress"><span style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }} /></div>{Math.round(job.progress)}%</td><td>{job.error || job.message}</td><td>{["queued", "starting", "running", "cancel_requested"].includes(job.status) && <button className="row-action" onClick={() => props.onCancel(job.id)}>Cancel</button>}{job.result != null && <><ArtifactLinks value={job.result} /><pre className="job-result">{JSON.stringify(job.result, null, 2)}</pre></>}</td></tr>)}</tbody></table></div>}</section></>;
+}
+
+function ArtifactLinks({ value }: { value: unknown }) {
+  const paths: string[] = [];
+  function collect(item: unknown) { if (Array.isArray(item)) item.forEach(collect); else if (item && typeof item === "object") Object.entries(item).forEach(([key, child]) => key.endsWith("path") && typeof child === "string" ? paths.push(child) : collect(child)); }
+  collect(value);
+  const unique = Array.from(new Set(paths));
+  return unique.length ? <div className="artifact-links">{unique.map((path) => <span className="artifact-item" key={path}><ArtifactPreview path={path} /><a className="row-action" href={artifactDownloadUrl(path)}>Download {path.split("/").pop()}</a></span>)}</div> : null;
+}
+
+function ArtifactPreview({ path }: { path: string }) {
+  const lower = path.toLowerCase();
+  const url = artifactDownloadUrl(path);
+  if (/\.(png|jpe?g|webp|gif)$/.test(lower)) return <a href={url} target="_blank" rel="noreferrer"><img className="artifact-thumb" src={url} alt={path} /></a>;
+  if (/\.(mp4|webm|mov)$/.test(lower)) return <video className="artifact-thumb" src={url} controls preload="metadata" />;
+  if (/\.(wav|mp3|flac|m4a|ogg)$/.test(lower)) return <audio className="artifact-audio" src={url} controls preload="metadata" />;
+  return null;
 }
 
 function DatasetTable(props: { items: DatasetItem[]; onOpenCaptions: () => void; onSelect: (item: DatasetItem) => void; onRemove: (item: DatasetItem) => void }) {
@@ -1044,7 +1245,7 @@ function Metric({ label, value, tone }: { label: string; value: string; tone: st
 }
 
 function ComingSoonPage({ section }: { section: SectionKey }) {
-  const labels: Record<SectionKey, string> = { start: "Start", prep: "Image Prep", captions: "Captions", samples: "Samples", training: "Training", profiler: "Profiler", repair: "Repair Studio", explorer: "LoRA Explorer", royale: "LoRA Royale", extract: "Extract", metadata: "Metadata", preferences: "Preferences" };
+  const labels: Record<SectionKey, string> = { start: "Start", prep: "Image Prep", captions: "Captions", samples: "Samples", training: "Training", profiler: "Profiler", repair: "Repair Studio", explorer: "LoRA Explorer", royale: "LoRA Royale", extract: "Extract", metadata: "Metadata", preferences: "Preferences", jobs: "Jobs" };
   return <section className="card rollout-card"><div className="rollout-icon">✦</div><div className="pill accent">CONTROLLED ROLLOUT</div><h2>{labels[section]} is next</h2><p>The browser shell is in place. This surface will be wired to the existing Fizgig engine behind a durable API and job contract before controls are enabled.</p><div className="rollout-rule"><span>Current milestone</span><strong>Start + Captions vertical slice</strong></div></section>;
 }
 

@@ -1,0 +1,10 @@
+.git/
+.fizgig/
+web/node_modules/
+web/dist/
+venv/
+__pycache__/
+*.pyc
+output_loras/*.safetensors
+cache/*
+out/*

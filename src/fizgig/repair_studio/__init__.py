@@ -11,7 +11,21 @@ Public API:
 """
 
 from fizgig.repair_studio.state import BlockState, SliderState
-from fizgig.repair_studio.engine import RepairEngine
-from fizgig.repair_studio.bake import save_repaired_lora
 
 __all__ = ["BlockState", "SliderState", "RepairEngine", "save_repaired_lora"]
+
+
+def __getattr__(name):
+    """Load GPU-backed Repair Studio components only when requested.
+
+    State/default-state consumers are used by the browser control plane and
+    should not require Torch just to inspect or validate a slider document.
+    The historical package-level imports remain available for desktop callers.
+    """
+    if name == "RepairEngine":
+        from fizgig.repair_studio.engine import RepairEngine
+        return RepairEngine
+    if name == "save_repaired_lora":
+        from fizgig.repair_studio.bake import save_repaired_lora
+        return save_repaired_lora
+    raise AttributeError(name)
