@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { clearSampleOverride, deletePreset, getJob, importDataset, listPresets, loadPreset, loadWorkspaceState, previewExtract, previewProfile, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startProfile, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
-import type { ImagePrepResult, TrainingCommandPreview, TrainingConfigResult, WorkbenchPreview } from "./api";
+import { clearSampleOverride, deletePreset, getJob, importDataset, inspectMetadata, listPresets, loadPreset, loadWorkspaceState, previewExtract, previewProfile, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startProfile, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
+import type { ImagePrepResult, MetadataInspection, TrainingCommandPreview, TrainingConfigResult, WorkbenchPreview } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
 const sections: Array<{ key: SectionKey; label: string; icon: string; group?: string }> = [
@@ -63,6 +63,8 @@ function App() {
   const [extractSamples, setExtractSamples] = useState("0");
   const [extractRank, setExtractRank] = useState("2");
   const [extractPreview, setExtractPreview] = useState<WorkbenchPreview | null>(null);
+  const [metadataPath, setMetadataPath] = useState("");
+  const [metadataResult, setMetadataResult] = useState<MetadataInspection | null>(null);
   const [presetNames, setPresetNames] = useState<string[]>([]);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [presetName, setPresetName] = useState("");
@@ -331,6 +333,13 @@ function App() {
       if (job.status !== "completed") throw new Error(job.error || `Extraction ${job.status}`);
       setMessage("LoRA extraction completed");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to run extraction"); setMessage("Extraction failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function inspectMetadataFile() {
+    setLoading(true); setError("");
+    try { setMetadataResult(await inspectMetadata(metadataPath.trim())); setMessage("SafeTensors metadata loaded without loading tensor data"); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to inspect metadata"); setMessage("Metadata inspection failed"); }
     finally { setLoading(false); }
   }
 
@@ -664,6 +673,7 @@ function App() {
           )}
           {active === "profiler" && <ToolPage title="Profiler" eyebrow="WORKBENCH / PROFILE" description="Generate a Krea 2 weight-only HTML report from a LoRA." source={profilerLora} setSource={setProfilerLora} output={profilerOutput} setOutput={setProfilerOutput} sourceLabel="LoRA file" preview={profilerPreview} loading={loading} onPreview={previewProfiler} onStart={runProfiler} />}
           {active === "extract" && <ToolPage title="Extract" eyebrow="TOOLS / EXTRACT" description="Extract a lower-rank LoRA with the existing Fizgig SVD engine." source={extractSource} setSource={setExtractSource} output={extractOutput} setOutput={setExtractOutput} sourceLabel="Source LoRA" extra={<><label className="prep-control"><span>Samples (0 = weight-only)</span><input type="number" min="0" value={extractSamples} onChange={(event) => setExtractSamples(event.target.value)} /></label><label className="prep-control"><span>Target rank</span><input type="number" min="1" value={extractRank} onChange={(event) => setExtractRank(event.target.value)} /></label></>} preview={extractPreview} loading={loading} onPreview={previewExtractor} onStart={runExtractor} />}
+          {active === "metadata" && <MetadataPage path={metadataPath} setPath={setMetadataPath} result={metadataResult} loading={loading} onInspect={inspectMetadataFile} />}
           {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && active !== "samples" && active !== "profiler" && active !== "extract" && <ComingSoonPage section={active} />}
         </div>
       </main>
@@ -960,6 +970,14 @@ function ToolPage(props: {
       <div className="prep-actions"><button className="button ghost" disabled={props.loading} onClick={props.onPreview}>Validate command</button><button className="button primary" disabled={props.loading || !props.preview} onClick={props.onStart}>Start job <span>→</span></button><span className="helper-text">The first validation only checks files and builds argv. It does not load model weights.</span></div>
       {props.preview && <div className="command-preview"><div className="section-kicker">VALIDATED COMMAND</div><pre>{props.preview.shell_command}</pre><small>Working directory: {props.preview.working_directory}</small></div>}
     </section>
+  </>;
+}
+
+function MetadataPage(props: { path: string; setPath: (value: string) => void; result: MetadataInspection | null; loading: boolean; onInspect: () => void }) {
+  return <>
+    <section className="card prep-banner"><div><div className="section-kicker">TOOLS / METADATA</div><h2>Inspect a SafeTensors file</h2><p>Read the header, model metadata, tensor names, dtypes, and shapes without loading model weights.</p></div><span className="pill accent">READ ONLY</span></section>
+    <section className="card prep-options"><div className="field-row"><label className="path-field"><span className="field-icon">⌁</span><input value={props.path} onChange={(event) => props.setPath(event.target.value)} placeholder="output_loras/model.safetensors" /></label><button className="button primary" disabled={props.loading || !props.path.trim()} onClick={props.onInspect}>Inspect <span>→</span></button></div></section>
+    {props.result && <><div className="metric-grid"><Metric label="File size" value={`${(props.result.size_bytes / 1024 / 1024).toFixed(1)} MB`} tone="blue" /><Metric label="Tensors" value={String(props.result.tensor_count)} tone="green" /><Metric label="Metadata fields" value={String(Object.keys(props.result.metadata).length)} tone="amber" /></div><section className="card config-preview"><div className="section-heading"><div><div className="section-kicker">MODEL METADATA</div><h3>{props.result.relative_path || props.result.path}</h3></div></div><pre>{JSON.stringify(props.result.metadata, null, 2)}</pre></section><section className="card table-card"><div className="section-heading"><div><div className="section-kicker">TENSOR INDEX</div><h3>Header entries</h3></div></div><div className="table-wrap"><table><thead><tr><th>Name</th><th>dtype</th><th>shape</th><th>offsets</th></tr></thead><tbody>{props.result.tensors.map((tensor) => <tr key={tensor.name}><td>{tensor.name}</td><td>{tensor.dtype}</td><td>{JSON.stringify(tensor.shape)}</td><td>{JSON.stringify(tensor.data_offsets)}</td></tr>)}</tbody></table></div></section></>}
   </>;
 }
 

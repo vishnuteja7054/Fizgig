@@ -189,6 +189,20 @@ export function startExtract(values: { source: string; output: string; samples: 
   return request<JobRecord>("/api/workbench/extract/start", { method: "POST", body: JSON.stringify(values) });
 }
 
+export interface MetadataInspection {
+  path: string;
+  relative_path: string | null;
+  size_bytes: number;
+  tensor_count: number;
+  metadata: Record<string, string>;
+  tensors: Array<{ name: string; dtype: string; shape: number[]; data_offsets: number[] }>;
+}
+
+export function inspectMetadata(path: string) {
+  const params = new URLSearchParams({ path });
+  return request<MetadataInspection>(`/api/metadata/inspect?${params}`);
+}
+
 export function writeTrainingDatasetConfig(values: {
   name: string;
   folder: string;

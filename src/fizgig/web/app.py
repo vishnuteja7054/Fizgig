@@ -25,6 +25,7 @@ from fizgig import __version__ as FIZGIG_VERSION
 from fizgig.app.dataset import DatasetService
 from fizgig.app.image_prep import ImagePrepService
 from fizgig.app.jobs import JobService
+from fizgig.app.metadata import MetadataError, MetadataService
 from fizgig.app.samples import SampleError, SampleService
 from fizgig.app.workbench import (
     ExtractRequest,
@@ -240,6 +241,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     training_commands = TrainingCommandService(root)
     samples = SampleService(root)
     workbench = WorkbenchCommandService(root)
+    metadata = MetadataService(root)
 
     app = FastAPI(
         title="Fizgig Browser API",
@@ -440,6 +442,13 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
         except (WorkbenchError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _tool_job("extract", command)
+
+    @app.get("/api/metadata/inspect")
+    def inspect_metadata(path: str = Query(min_length=1)) -> dict[str, Any]:
+        try:
+            return metadata.inspect(path)
+        except MetadataError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/jobs")
     def list_jobs(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:

@@ -36,6 +36,7 @@ Initial endpoints:
 - `POST/DELETE /api/samples/override`
 - `POST /api/workbench/profile/{preview,start}`
 - `POST /api/workbench/extract/{preview,start}`
+- `GET /api/metadata/inspect?path=...`
 - `GET/POST /api/jobs`
 - `GET /api/jobs/{id}`
 - `GET /api/jobs/{id}/log`
