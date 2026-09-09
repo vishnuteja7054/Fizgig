@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ChangeEvent } from "react";
-import { clearSampleOverride, deletePreset, getJob, importDataset, listPresets, loadPreset, loadWorkspaceState, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
-import type { ImagePrepResult, TrainingCommandPreview, TrainingConfigResult } from "./api";
+import type { ChangeEvent, ReactNode } from "react";
+import { clearSampleOverride, deletePreset, getJob, importDataset, listPresets, loadPreset, loadWorkspaceState, previewExtract, previewProfile, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startProfile, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
+import type { ImagePrepResult, TrainingCommandPreview, TrainingConfigResult, WorkbenchPreview } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
 const sections: Array<{ key: SectionKey; label: string; icon: string; group?: string }> = [
@@ -55,6 +55,14 @@ function App() {
   const [sampleSteps, setSampleSteps] = useState("40");
   const [sampleSeed, setSampleSeed] = useState("1234");
   const [sampleOverridePrompt, setSampleOverridePrompt] = useState("");
+  const [profilerLora, setProfilerLora] = useState("");
+  const [profilerOutput, setProfilerOutput] = useState("out/profile.html");
+  const [profilerPreview, setProfilerPreview] = useState<WorkbenchPreview | null>(null);
+  const [extractSource, setExtractSource] = useState("");
+  const [extractOutput, setExtractOutput] = useState("output_loras/extracted.safetensors");
+  const [extractSamples, setExtractSamples] = useState("0");
+  const [extractRank, setExtractRank] = useState("2");
+  const [extractPreview, setExtractPreview] = useState<WorkbenchPreview | null>(null);
   const [presetNames, setPresetNames] = useState<string[]>([]);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [presetName, setPresetName] = useState("");
@@ -280,6 +288,50 @@ function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to clear sample override");
     }
+  }
+
+  async function previewProfiler() {
+    setLoading(true); setError("");
+    try {
+      const result = await previewProfile({ lora: profilerLora.trim(), output: profilerOutput.trim(), krea2: true });
+      setProfilerPreview(result); setMessage("Profiler command validated; nothing has started");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to validate profiler"); setMessage("Profiler validation failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function runProfiler() {
+    if (!window.confirm("Start the profiler job now?")) return;
+    setLoading(true); setError("");
+    try {
+      const started = await startProfile({ lora: profilerLora.trim(), output: profilerOutput.trim(), krea2: true });
+      let job = started;
+      while (["queued", "starting", "running", "cancel_requested"].includes(job.status)) { setMessage(`${job.message} · ${Math.round(job.progress)}%`); await new Promise((resolve) => window.setTimeout(resolve, 700)); job = await getJob(started.id); }
+      if (job.status !== "completed") throw new Error(job.error || `Profiler ${job.status}`);
+      setMessage("Profiler completed; open the generated HTML report");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to run profiler"); setMessage("Profiler failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function previewExtractor() {
+    setLoading(true); setError("");
+    try {
+      const result = await previewExtract({ source: extractSource.trim(), output: extractOutput.trim(), samples: Number(extractSamples) || 0, rank: Number(extractRank) || 2 });
+      setExtractPreview(result); setMessage("Extraction command validated; nothing has started");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to validate extraction"); setMessage("Extraction validation failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function runExtractor() {
+    if (!window.confirm("Start LoRA extraction now?")) return;
+    setLoading(true); setError("");
+    try {
+      const started = await startExtract({ source: extractSource.trim(), output: extractOutput.trim(), samples: Number(extractSamples) || 0, rank: Number(extractRank) || 2 });
+      let job = started;
+      while (["queued", "starting", "running", "cancel_requested"].includes(job.status)) { setMessage(`${job.message} · ${Math.round(job.progress)}%`); await new Promise((resolve) => window.setTimeout(resolve, 700)); job = await getJob(started.id); }
+      if (job.status !== "completed") throw new Error(job.error || `Extraction ${job.status}`);
+      setMessage("LoRA extraction completed");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to run extraction"); setMessage("Extraction failed"); }
+    finally { setLoading(false); }
   }
 
   async function previewTraining() {
@@ -610,7 +662,9 @@ function App() {
               onDeactivate={deactivateSampleOverride}
             />
           )}
-          {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && active !== "samples" && <ComingSoonPage section={active} />}
+          {active === "profiler" && <ToolPage title="Profiler" eyebrow="WORKBENCH / PROFILE" description="Generate a Krea 2 weight-only HTML report from a LoRA." source={profilerLora} setSource={setProfilerLora} output={profilerOutput} setOutput={setProfilerOutput} sourceLabel="LoRA file" preview={profilerPreview} loading={loading} onPreview={previewProfiler} onStart={runProfiler} />}
+          {active === "extract" && <ToolPage title="Extract" eyebrow="TOOLS / EXTRACT" description="Extract a lower-rank LoRA with the existing Fizgig SVD engine." source={extractSource} setSource={setExtractSource} output={extractOutput} setOutput={setExtractOutput} sourceLabel="Source LoRA" extra={<><label className="prep-control"><span>Samples (0 = weight-only)</span><input type="number" min="0" value={extractSamples} onChange={(event) => setExtractSamples(event.target.value)} /></label><label className="prep-control"><span>Target rank</span><input type="number" min="1" value={extractRank} onChange={(event) => setExtractRank(event.target.value)} /></label></>} preview={extractPreview} loading={loading} onPreview={previewExtractor} onStart={runExtractor} />}
+          {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && active !== "samples" && active !== "profiler" && active !== "extract" && <ComingSoonPage section={active} />}
         </div>
       </main>
     </div>
@@ -880,6 +934,31 @@ function SamplesPage(props: {
       <div className="section-heading"><div><div className="section-kicker">LIVE OVERRIDE</div><h3>Change the next preview at an epoch boundary</h3></div><span className="pill">OUTPUT: {props.outputDir || "output_loras"}</span></div>
       <label className="editor-label" style={{ marginTop: 18 }}>Temporary prompt<textarea value={props.overridePrompt} onChange={(event) => props.setOverridePrompt(event.target.value)} placeholder="Leave empty to disable prompt override." /></label>
       <div className="prep-actions"><button className="button primary" disabled={props.loading || !props.overridePrompt.trim()} onClick={props.onActivate}>Activate override</button><button className="button ghost" disabled={props.loading} onClick={props.onDeactivate}>Clear override</button><span className="helper-text">The trainer reads this file between epochs; the current run is not interrupted.</span></div>
+    </section>
+  </>;
+}
+
+function ToolPage(props: {
+  title: string;
+  eyebrow: string;
+  description: string;
+  source: string;
+  setSource: (value: string) => void;
+  sourceLabel: string;
+  output: string;
+  setOutput: (value: string) => void;
+  extra?: ReactNode;
+  preview: WorkbenchPreview | null;
+  loading: boolean;
+  onPreview: () => void;
+  onStart: () => void;
+}) {
+  return <>
+    <section className="card prep-banner"><div><div className="section-kicker">{props.eyebrow}</div><h2>{props.title}</h2><p>{props.description}</p></div><span className="pill accent">DURABLE JOB</span></section>
+    <section className="card prep-options"><div className="section-heading"><div><div className="section-kicker">INPUT / OUTPUT</div><h3>Configure the tool</h3></div><span className="pill">WORKSPACE-SAFE OUTPUT</span></div>
+      <div className="training-form-grid"><label className="prep-control"><span>{props.sourceLabel}</span><input value={props.source} onChange={(event) => props.setSource(event.target.value)} placeholder="/models/subject.safetensors" /></label><label className="prep-control"><span>Output path</span><input value={props.output} onChange={(event) => props.setOutput(event.target.value)} /></label>{props.extra}</div>
+      <div className="prep-actions"><button className="button ghost" disabled={props.loading} onClick={props.onPreview}>Validate command</button><button className="button primary" disabled={props.loading || !props.preview} onClick={props.onStart}>Start job <span>→</span></button><span className="helper-text">The first validation only checks files and builds argv. It does not load model weights.</span></div>
+      {props.preview && <div className="command-preview"><div className="section-kicker">VALIDATED COMMAND</div><pre>{props.preview.shell_command}</pre><small>Working directory: {props.preview.working_directory}</small></div>}
     </section>
   </>;
 }

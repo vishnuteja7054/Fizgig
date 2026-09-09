@@ -34,6 +34,8 @@ Initial endpoints:
 - `POST /api/training/start` (start a persistent model-training job)
 - `POST /api/samples/prompts`
 - `POST/DELETE /api/samples/override`
+- `POST /api/workbench/profile/{preview,start}`
+- `POST /api/workbench/extract/{preview,start}`
 - `GET/POST /api/jobs`
 - `GET /api/jobs/{id}`
 - `GET /api/jobs/{id}/log`

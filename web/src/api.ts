@@ -165,6 +165,30 @@ export function clearSampleOverride(outputDir: string) {
   return request(`/api/samples/override?${params}`, { method: "DELETE" });
 }
 
+export interface WorkbenchPreview {
+  tool: string;
+  command: string[];
+  shell_command: string;
+  working_directory: string;
+  execution_ready: boolean;
+}
+
+export function previewProfile(values: { lora: string; output: string; krea2: boolean }) {
+  return request<WorkbenchPreview>("/api/workbench/profile/preview", { method: "POST", body: JSON.stringify(values) });
+}
+
+export function startProfile(values: { lora: string; output: string; krea2: boolean }) {
+  return request<JobRecord>("/api/workbench/profile/start", { method: "POST", body: JSON.stringify(values) });
+}
+
+export function previewExtract(values: { source: string; output: string; samples: number; rank: number }) {
+  return request<WorkbenchPreview>("/api/workbench/extract/preview", { method: "POST", body: JSON.stringify(values) });
+}
+
+export function startExtract(values: { source: string; output: string; samples: number; rank: number }) {
+  return request<JobRecord>("/api/workbench/extract/start", { method: "POST", body: JSON.stringify(values) });
+}
+
 export function writeTrainingDatasetConfig(values: {
   name: string;
   folder: string;

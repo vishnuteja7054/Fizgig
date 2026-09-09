@@ -26,6 +26,13 @@ from fizgig.app.dataset import DatasetService
 from fizgig.app.image_prep import ImagePrepService
 from fizgig.app.jobs import JobService
 from fizgig.app.samples import SampleError, SampleService
+from fizgig.app.workbench import (
+    ExtractRequest,
+    ProfileRequest,
+    WorkbenchCommandService,
+    WorkbenchError,
+    run_workbench_job,
+)
 from fizgig.app.training import TrainingCommandService, TrainingLaunchError, run_training_job
 from fizgig.app.workspace import WorkspaceStateError, WorkspaceStateService
 from fizgig.app.training_config import (
@@ -157,6 +164,40 @@ class SampleOverrideRequest(BaseModel):
     ref_image: str = ""
 
 
+class ProfileToolRequest(BaseModel):
+    lora: str = Field(min_length=1)
+    output: str = "out/profile.html"
+    krea2: bool = True
+    dit: str = ""
+    vae: str = ""
+    text_encoder: str = ""
+    num_samples: int = Field(default=8, ge=1)
+    num_bins: int = Field(default=5, ge=1)
+    width: int = Field(default=1024, ge=16)
+    height: int = Field(default=1024, ge=16)
+    prompt: str = ""
+    blocks_to_swap: int = Field(default=12, ge=0)
+    seed: int | None = None
+
+
+class ExtractToolRequest(BaseModel):
+    source: str = Field(min_length=1)
+    output: str = "output_loras/extracted.safetensors"
+    samples: int = Field(default=0, ge=0)
+    rank: int = Field(default=2, ge=1)
+    blocks: str = "all"
+    custom_blocks: str = ""
+    timesteps: str = "all"
+    prompt: str = "a photo"
+    width: int = Field(default=1024, ge=16)
+    height: int = Field(default=1024, ge=16)
+    multiplier: float = 1.0
+    seed: int | None = None
+    dit: str = ""
+    vae: str = ""
+    text_encoder: str = ""
+
+
 class JobCreateRequest(BaseModel):
     kind: str = Field(min_length=1)
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -198,6 +239,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     presets = PresetRepository(root)
     training_commands = TrainingCommandService(root)
     samples = SampleService(root)
+    workbench = WorkbenchCommandService(root)
 
     app = FastAPI(
         title="Fizgig Browser API",
@@ -354,6 +396,50 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"output_dir": output_dir, "status": "cleared"}
+
+    def _tool_job(tool: str, command: list[str]) -> dict[str, Any]:
+        payload = {"tool": tool, "command": command}
+
+        def run(context, job_payload):
+            return run_workbench_job(context, job_payload["command"], workbench, tool)
+
+        return jobs.create(f"workbench.{tool}", payload, run).as_dict()
+
+    @app.post("/api/workbench/profile/preview")
+    def preview_profile(request: ProfileToolRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            command = workbench.profile(ProfileRequest(**values))
+            return workbench.preview(command, "profile")
+        except (WorkbenchError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/workbench/profile/start")
+    def start_profile(request: ProfileToolRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            command = workbench.profile(ProfileRequest(**values))
+        except (WorkbenchError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _tool_job("profile", command)
+
+    @app.post("/api/workbench/extract/preview")
+    def preview_extract(request: ExtractToolRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            command = workbench.extract(ExtractRequest(**values))
+            return workbench.preview(command, "extract")
+        except (WorkbenchError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/workbench/extract/start")
+    def start_extract(request: ExtractToolRequest) -> dict[str, Any]:
+        try:
+            values = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+            command = workbench.extract(ExtractRequest(**values))
+        except (WorkbenchError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _tool_job("extract", command)
 
     @app.get("/api/jobs")
     def list_jobs(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
