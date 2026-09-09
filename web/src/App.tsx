@@ -720,6 +720,7 @@ function App() {
               onScan={scan}
               onImport={importSelectedFolder}
               onOpenPreferences={() => setActive("preferences")}
+              modelsConfigured={Boolean(trainingDit.trim() || trainingVae.trim() || trainingTextEncoder.trim())}
             />
           )}
           {active === "captions" && (
@@ -847,6 +848,7 @@ function StartPage(props: {
   onScan: () => void;
   onImport: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenPreferences: () => void;
+  modelsConfigured: boolean;
 }) {
   return (
     <>
@@ -895,10 +897,10 @@ function StartPage(props: {
         <div className="helper-text">Or type a path already inside the configured Fizgig workspace. Subfolders such as <code>removed/</code> are intentionally not scanned.</div>
       </section>
 
-      <section className="setup-warning">
+      {!props.modelsConfigured && <section className="setup-warning">
         <div><strong>⚠ Model files not configured</strong><p>Head to the Preferences tab to set your model paths before training or using the tools. These paths must exist in the server or Modal workspace.</p></div>
         <button className="button ghost" onClick={props.onOpenPreferences}>Open Preferences</button>
-      </section>
+      </section>}
 
       <section className="card post-tools-card">
         <div className="section-heading"><div><div className="section-kicker">POST-TRAINING TOOLS</div><h3>Fizgig is more than a trainer</h3></div><span className="pill">WORKBENCH</span></div>
