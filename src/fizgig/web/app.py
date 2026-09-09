@@ -25,6 +25,7 @@ from fizgig import __version__ as FIZGIG_VERSION
 from fizgig.app.dataset import DatasetService
 from fizgig.app.image_prep import ImagePrepService
 from fizgig.app.jobs import JobService
+from fizgig.app.catalog import CatalogError, LoraCatalogService
 from fizgig.app.metadata import MetadataError, MetadataService
 from fizgig.app.samples import SampleError, SampleService
 from fizgig.app.workbench import (
@@ -242,6 +243,7 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
     samples = SampleService(root)
     workbench = WorkbenchCommandService(root)
     metadata = MetadataService(root)
+    catalog = LoraCatalogService(root)
 
     app = FastAPI(
         title="Fizgig Browser API",
@@ -448,6 +450,20 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
         try:
             return metadata.inspect(path)
         except MetadataError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/lora/explorer")
+    def list_lora_catalog(folder: str = Query(default="output_loras", min_length=1)) -> dict[str, Any]:
+        try:
+            return {"folder": folder, "items": catalog.explorer(folder)}
+        except (CatalogError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/lora/royale")
+    def list_royale_checkpoints(folder: str = Query(default="output_loras", min_length=1)) -> dict[str, Any]:
+        try:
+            return {"folder": folder, "items": catalog.royale(folder)}
+        except (CatalogError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/jobs")

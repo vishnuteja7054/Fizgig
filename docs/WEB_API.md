@@ -37,6 +37,8 @@ Initial endpoints:
 - `POST /api/workbench/profile/{preview,start}`
 - `POST /api/workbench/extract/{preview,start}`
 - `GET /api/metadata/inspect?path=...`
+- `GET /api/lora/explorer?folder=...`
+- `GET /api/lora/royale?folder=...`
 - `GET/POST /api/jobs`
 - `GET /api/jobs/{id}`
 - `GET /api/jobs/{id}/log`

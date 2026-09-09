@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { clearSampleOverride, deletePreset, getJob, importDataset, inspectMetadata, listPresets, loadPreset, loadWorkspaceState, previewExtract, previewProfile, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startProfile, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
-import type { ImagePrepResult, MetadataInspection, TrainingCommandPreview, TrainingConfigResult, WorkbenchPreview } from "./api";
+import { clearSampleOverride, deletePreset, getJob, importDataset, inspectMetadata, listPresets, loadLoraExplorer, loadLoraRoyale, loadPreset, loadWorkspaceState, previewExtract, previewProfile, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startProfile, startResizeOnlyJob, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
+import type { ImagePrepResult, LoraCatalogItem, MetadataInspection, TrainingCommandPreview, TrainingConfigResult, WorkbenchPreview } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
 const sections: Array<{ key: SectionKey; label: string; icon: string; group?: string }> = [
@@ -65,6 +65,9 @@ function App() {
   const [extractPreview, setExtractPreview] = useState<WorkbenchPreview | null>(null);
   const [metadataPath, setMetadataPath] = useState("");
   const [metadataResult, setMetadataResult] = useState<MetadataInspection | null>(null);
+  const [catalogFolder, setCatalogFolder] = useState("output_loras");
+  const [explorerItems, setExplorerItems] = useState<LoraCatalogItem[]>([]);
+  const [royaleItems, setRoyaleItems] = useState<LoraCatalogItem[]>([]);
   const [presetNames, setPresetNames] = useState<string[]>([]);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [presetName, setPresetName] = useState("");
@@ -352,6 +355,20 @@ function App() {
       });
       setMessage("Preferences saved to the shared workspace state");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save preferences"); setMessage("Preferences save failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function scanExplorer() {
+    setLoading(true); setError("");
+    try { const result = await loadLoraExplorer(catalogFolder.trim()); setExplorerItems(result.items); setMessage(`Found ${result.items.length} LoRA file${result.items.length === 1 ? "" : "s"}`); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to scan LoRAs"); setMessage("Explorer scan failed"); }
+    finally { setLoading(false); }
+  }
+
+  async function scanRoyale() {
+    setLoading(true); setError("");
+    try { const result = await loadLoraRoyale(catalogFolder.trim()); setRoyaleItems(result.items); setMessage(`Found ${result.items.length} checkpoint${result.items.length === 1 ? "" : "s"}`); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to scan checkpoints"); setMessage("Royale scan failed"); }
     finally { setLoading(false); }
   }
 
@@ -691,6 +708,8 @@ function App() {
           {active === "extract" && <ToolPage title="Extract" eyebrow="TOOLS / EXTRACT" description="Extract a lower-rank LoRA with the existing Fizgig SVD engine." source={extractSource} setSource={setExtractSource} output={extractOutput} setOutput={setExtractOutput} sourceLabel="Source LoRA" extra={<><label className="prep-control"><span>Samples (0 = weight-only)</span><input type="number" min="0" value={extractSamples} onChange={(event) => setExtractSamples(event.target.value)} /></label><label className="prep-control"><span>Target rank</span><input type="number" min="1" value={extractRank} onChange={(event) => setExtractRank(event.target.value)} /></label></>} preview={extractPreview} loading={loading} onPreview={previewExtractor} onStart={runExtractor} />}
           {active === "metadata" && <MetadataPage path={metadataPath} setPath={setMetadataPath} result={metadataResult} loading={loading} onInspect={inspectMetadataFile} />}
           {active === "preferences" && <PreferencesPage dit={trainingDit} setDit={setTrainingDit} vae={trainingVae} setVae={setTrainingVae} textEncoder={trainingTextEncoder} setTextEncoder={setTrainingTextEncoder} outputDir={trainingOutputDir} setOutputDir={setTrainingOutputDir} loading={loading} onSave={savePreferences} />}
+          {active === "explorer" && <CatalogPage title="LoRA Explorer" description="Browse workspace LoRAs and inspect their header metadata." folder={catalogFolder} setFolder={setCatalogFolder} items={explorerItems} mode="explorer" loading={loading} onScan={scanExplorer} />}
+          {active === "royale" && <CatalogPage title="LoRA Royale" description="Scan epoch checkpoints in the same order used by the desktop Royale workflow." folder={catalogFolder} setFolder={setCatalogFolder} items={royaleItems} mode="royale" loading={loading} onScan={scanRoyale} />}
           {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && active !== "samples" && active !== "profiler" && active !== "extract" && <ComingSoonPage section={active} />}
         </div>
       </main>
@@ -1003,6 +1022,10 @@ function PreferencesPage(props: { dit: string; setDit: (value: string) => void; 
     <section className="card prep-banner"><div><div className="section-kicker">TOOLS / PREFERENCES</div><h2>Keep remote paths in one place</h2><p>These values are saved in the workspace state and reused by Training, Samples, Profiler, and other browser surfaces.</p></div><span className="pill accent">PERSISTED</span></section>
     <section className="card prep-options"><div className="section-heading"><div><div className="section-kicker">MODEL FILES</div><h3>Mounted model paths</h3></div><span className="pill">SERVER-SIDE PATHS</span></div><div className="training-form-grid"><label className="prep-control"><span>DiT model</span><input value={props.dit} onChange={(event) => props.setDit(event.target.value)} placeholder="/models/base.safetensors" /></label><label className="prep-control"><span>VAE</span><input value={props.vae} onChange={(event) => props.setVae(event.target.value)} placeholder="/models/vae.safetensors" /></label><label className="prep-control"><span>Text encoder</span><input value={props.textEncoder} onChange={(event) => props.setTextEncoder(event.target.value)} placeholder="/models/text_encoder.safetensors" /></label><label className="prep-control"><span>Default output directory</span><input value={props.outputDir} onChange={(event) => props.setOutputDir(event.target.value)} /></label></div><div className="prep-actions"><button className="button primary" disabled={props.loading} onClick={props.onSave}>Save preferences <span>✓</span></button><span className="helper-text">The browser cannot read your PC filesystem directly; these paths must exist in the server or Modal workspace.</span></div></section>
   </>;
+}
+
+function CatalogPage(props: { title: string; description: string; folder: string; setFolder: (value: string) => void; items: LoraCatalogItem[]; mode: "explorer" | "royale"; loading: boolean; onScan: () => void }) {
+  return <><section className="card prep-banner"><div><div className="section-kicker">WORKBENCH / {props.mode.toUpperCase()}</div><h2>{props.title}</h2><p>{props.description}</p></div><span className="pill accent">CATALOG</span></section><section className="card prep-options"><div className="field-row"><label className="path-field"><span className="field-icon">⌁</span><input value={props.folder} onChange={(event) => props.setFolder(event.target.value)} placeholder="output_loras" /></label><button className="button primary" disabled={props.loading || !props.folder.trim()} onClick={props.onScan}>Scan <span>→</span></button></div></section><section className="card table-card"><div className="section-heading"><div><div className="section-kicker">CHECKPOINT INVENTORY</div><h3>{props.items.length} files</h3></div></div>{props.items.length === 0 ? <EmptyState text="Scan a workspace folder to list SafeTensors checkpoints." /> : <div className="table-wrap"><table><thead><tr><th>{props.mode === "royale" ? "Epoch / label" : "Name"}</th><th>Path</th><th>Size</th><th>{props.mode === "explorer" ? "Tensors" : "Status"}</th></tr></thead><tbody>{props.items.map((item) => <tr key={item.relative_path}><td>{item.label ?? item.name}</td><td>{item.relative_path}</td><td>{(item.size_bytes / 1024 / 1024).toFixed(1)} MB</td><td>{props.mode === "explorer" ? (item.tensor_count ?? "—") : <span className="caption-state ready">Ready to render</span>}</td></tr>)}</tbody></table></div>}</section></>;
 }
 
 function DatasetTable(props: { items: DatasetItem[]; onOpenCaptions: () => void; onSelect: (item: DatasetItem) => void; onRemove: (item: DatasetItem) => void }) {

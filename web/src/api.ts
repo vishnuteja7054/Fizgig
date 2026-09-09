@@ -203,6 +203,18 @@ export function inspectMetadata(path: string) {
   return request<MetadataInspection>(`/api/metadata/inspect?${params}`);
 }
 
+export interface LoraCatalogItem { name?: string; label?: string; relative_path: string; size_bytes: number; metadata?: Record<string, string>; tensor_count?: number; error?: string }
+
+export function loadLoraExplorer(folder: string) {
+  const params = new URLSearchParams({ folder });
+  return request<{ folder: string; items: LoraCatalogItem[] }>(`/api/lora/explorer?${params}`);
+}
+
+export function loadLoraRoyale(folder: string) {
+  const params = new URLSearchParams({ folder });
+  return request<{ folder: string; items: LoraCatalogItem[] }>(`/api/lora/royale?${params}`);
+}
+
 export function writeTrainingDatasetConfig(values: {
   name: string;
   folder: string;
