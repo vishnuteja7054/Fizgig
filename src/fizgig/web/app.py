@@ -13,7 +13,7 @@ from typing import Any
 
 try:
     from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
-    from fastapi.responses import FileResponse, PlainTextResponse
+    from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, Field
 except ImportError as exc:  # pragma: no cover - gives a useful startup error
@@ -302,6 +302,22 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
         version="0.1.0",
         description="Browser-safe control plane for the Fizgig workbench.",
     )
+
+    api_token = os.environ.get("FIZGIG_API_TOKEN", "").strip()
+
+    @app.middleware("http")
+    async def optional_api_auth(request, call_next):
+        """Protect API routes when a deployment supplies a bearer token.
+
+        Local development remains unauthenticated when the environment
+        variable is absent. Health is intentionally public for deployment
+        probes; all other API routes require the configured token.
+        """
+        if api_token and request.url.path.startswith("/api/") and request.url.path != "/api/health":
+            authorization = request.headers.get("authorization", "")
+            if authorization != f"Bearer {api_token}":
+                return JSONResponse({"detail": "authentication required"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
+        return await call_next(request)
 
     @app.get("/api/health", response_model=HealthResponse)
     def health() -> HealthResponse:

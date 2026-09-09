@@ -1,6 +1,7 @@
 import type { DatasetItem, DatasetScan } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
 
 export function artifactDownloadUrl(path: string) {
   const params = new URLSearchParams({ path });
@@ -11,6 +12,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!(init?.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
+  }
+  if (API_TOKEN) {
+    headers.set("Authorization", `Bearer ${API_TOKEN}`);
   }
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,

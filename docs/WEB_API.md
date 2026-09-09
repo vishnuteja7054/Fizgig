@@ -69,3 +69,9 @@ The example uses an L40S worker because Repair/Explorer/Royale and training are
 GPU-backed. Populate the `fizgig-models` Volume at the paths used in
 Preferences before starting model jobs. Adjust the GPU class if needed. Do not expose the URL
 publicly until authentication and workspace isolation are added.
+
+Optional bearer authentication is available for deployments: set
+`FIZGIG_API_TOKEN` on the API process and build the frontend with the matching
+`VITE_API_TOKEN`. The health endpoint remains public for probes; other API
+routes require `Authorization: Bearer <token>`. Leave both variables unset for
+local development.
