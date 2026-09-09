@@ -5,14 +5,14 @@ import type { ImagePrepResult, LoraCatalogItem, MetadataInspection, TrainingComm
 import type { DatasetItem, SectionKey } from "./types";
 
 const sections: Array<{ key: SectionKey; label: string; icon: string; group?: string }> = [
-  { key: "start", label: "Start", icon: "⌂" },
-  { key: "prep", label: "Image Prep", icon: "✦" },
-  { key: "captions", label: "Captions", icon: "Aa" },
-  { key: "samples", label: "Samples", icon: "◈" },
-  { key: "training", label: "Training", icon: "↗" },
+  { key: "start", label: "1. Start", icon: "⌂" },
+  { key: "prep", label: "2. Image Prep", icon: "✦" },
+  { key: "captions", label: "3. Captions", icon: "Aa" },
+  { key: "samples", label: "4. Samples", icon: "◈" },
+  { key: "training", label: "5. Training", icon: "↗" },
   { key: "profiler", label: "Profiler", icon: "◎", group: "Workbench" },
   { key: "repair", label: "Repair Studio", icon: "⌘", group: "Workbench" },
-  { key: "explorer", label: "LoRA Explorer", icon: "◇", group: "Workbench" },
+  { key: "explorer", label: "LoRA the Explorer", icon: "◇", group: "Workbench" },
   { key: "royale", label: "LoRA Royale", icon: "♢", group: "Workbench" },
   { key: "extract", label: "Extract", icon: "⇩", group: "Workbench" },
   { key: "metadata", label: "Metadata", icon: "≡", group: "Tools" },
@@ -717,15 +717,10 @@ function App() {
             <StartPage
               folder={folder}
               setFolder={setFolder}
-              items={items}
-              captionCount={captionCount}
-              missingCount={missingCount}
               loading={loading}
               onScan={scan}
               onImport={importSelectedFolder}
-              onOpenCaptions={() => setActive("captions")}
-              onSelect={selectItem}
-              onRemove={removeSelected}
+              onOpenPreferences={() => setActive("preferences")}
             />
           )}
           {active === "captions" && (
@@ -849,29 +844,34 @@ function App() {
 function StartPage(props: {
   folder: string;
   setFolder: (value: string) => void;
-  items: DatasetItem[];
-  captionCount: number;
-  missingCount: number;
   loading: boolean;
   onScan: () => void;
   onImport: (event: ChangeEvent<HTMLInputElement>) => void;
-  onOpenCaptions: () => void;
-  onSelect: (item: DatasetItem) => void;
-  onRemove: (item: DatasetItem) => void;
+  onOpenPreferences: () => void;
 }) {
   return (
     <>
-      <section className="hero-card">
-        <div className="hero-copy">
-          <div className="pill accent">FIRST VERTICAL SLICE</div>
-          <h2>Turn a folder into a<br /><span>workable dataset.</span></h2>
-          <p>Scan your workspace, review the media Fizgig will train on, and keep captions in sync before a run begins.</p>
-        </div>
-        <div className="hero-orbit"><div className="orbit-ring ring-one" /><div className="orbit-ring ring-two" /><div className="orbit-core">F</div></div>
+      <section className="welcome-heading">
+        <h2>Welcome to Fizgig</h2>
+        <p>A focused, local trainer and workbench for Flux 2 Klein 9B, Krea 2 and MiniMax H3 LoRAs — train, profile, repair, explore, and extract, all in one place.</p>
       </section>
 
-      <section className="card workspace-card">
-        <div className="section-heading"><div><div className="section-kicker">DATASET WORKSPACE</div><h3>Choose a training folder</h3></div><span className="pill">SAFE PATHS</span></div>
+      <section className="card workflow-card">
+        <div className="section-heading"><div><div className="section-kicker">WORKFLOW</div><h3>Training Workflow</h3></div><span className="pill accent">FIZGIG</span></div>
+        <div className="workflow-steps">
+          {[
+            ["1", "Start", "Choose your training image folder."],
+            ["2", "Image Prep", "Resize, convert to PNG, or face-crop."],
+            ["3", "Captions", "Write trigger-word captions or generate them with AI."],
+            ["4", "Samples", "Configure in-training preview prompts."],
+            ["5", "Training", "Pick a preset, tune settings, click Start Training."],
+          ].map(([number, title, description], index) => <div className="workflow-step" key={title}><span className="workflow-number">{number}</span><strong>{title}</strong>{index === 1 && <span className="optional-badge">OPTIONAL</span>}<span>{description}</span></div>)}
+        </div>
+      </section>
+
+      <section className="card workspace-card original-folder-card">
+        <div className="section-heading"><div><div className="section-kicker">START</div><h3>Training image folder</h3></div><span className="pill accent">SHARED FOLDER</span></div>
+        <p className="original-description">This is the single place you set your dataset folder. Image Prep, Captions, and Training all read from it automatically.</p>
         <div className="field-row">
           <label className="path-field"><span className="field-icon">⌁</span><input value={props.folder} onChange={(event) => props.setFolder(event.target.value)} onKeyDown={(event) => event.key === "Enter" && props.onScan()} placeholder="dataset/my-subject" /><span className="field-suffix">workspace-relative</span></label>
           <button className="button primary" disabled={props.loading || !props.folder.trim()} onClick={props.onScan}>{props.loading ? "Scanning…" : "Scan folder"}<span>→</span></button>
@@ -893,13 +893,24 @@ function StartPage(props: {
         <div className="helper-text">Or type a path already inside the configured Fizgig workspace. Subfolders such as <code>removed/</code> are intentionally not scanned.</div>
       </section>
 
-      <div className="metric-grid">
-        <Metric label="Training items" value={String(props.items.length).padStart(2, "0")} tone="blue" />
-        <Metric label="Captioned" value={String(props.captionCount).padStart(2, "0")} tone="green" />
-        <Metric label="Needs captions" value={String(props.missingCount).padStart(2, "0")} tone="amber" />
-      </div>
+      <section className="setup-warning">
+        <div><strong>⚠ Model files not configured</strong><p>Head to the Preferences tab to set your model paths before training or using the tools. These paths must exist in the server or Modal workspace.</p></div>
+        <button className="button ghost" onClick={props.onOpenPreferences}>Open Preferences</button>
+      </section>
 
-      <DatasetTable items={props.items} onOpenCaptions={props.onOpenCaptions} onSelect={props.onSelect} onRemove={props.onRemove} />
+      <section className="card post-tools-card">
+        <div className="section-heading"><div><div className="section-kicker">POST-TRAINING TOOLS</div><h3>Fizgig is more than a trainer</h3></div><span className="pill">WORKBENCH</span></div>
+        <p className="original-description">These tabs let you understand and tune any Klein LoRA you’ve made or downloaded.</p>
+        <div className="post-tool-list">
+          {[
+            ["Profiler", "Analyze a LoRA's per-block activation profile and produce an HTML report."],
+            ["Repair Studio", "Live per-block sliders with side-by-side preview; blend a donor LoRA and bake the result."],
+            ["LoRA the Explorer", "Evolutionary discovery — propose mutations, pick favourites, and evolve the LoRA."],
+            ["LoRA Royale", "Compare epochs on one seed, then export share-ready clips."],
+            ["Extract", "Distill a LoRA to a lower rank with optional block- and timestep-targeted presets."],
+          ].map(([title, description]) => <div className="post-tool-row" key={title}><strong>{title}</strong><span>{description}</span></div>)}
+        </div>
+      </section>
     </>
   );
 }
