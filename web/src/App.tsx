@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { artifactDownloadUrl, cancelJob, clearSampleOverride, deletePreset, getJob, importDataset, inspectMetadata, listJobs, listPresets, loadLoraExplorer, loadLoraRoyale, loadPreset, loadRepairDefaultState, loadWorkspaceState, previewExtract, previewProfile, previewRepairBake, previewRepairRender, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startExplorerRender, startProfile, startRepairBake, startRepairRender, startResizeOnlyJob, startRoyaleRender, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
+import { artifactDownloadUrl, cancelJob, clearSampleOverride, deletePreset, fetchArtifact, getJob, importDataset, inspectMetadata, listJobs, listPresets, loadLoraExplorer, loadLoraRoyale, loadPreset, loadRepairDefaultState, loadWorkspaceState, previewExtract, previewProfile, previewRepairBake, previewRepairRender, previewTrainingCommand, readCaption, removeDatasetItem, savePreset, scanDataset, startExtract, startExplorerRender, startProfile, startRepairBake, startRepairRender, startResizeOnlyJob, startRoyaleRender, startTrainingJob, updateWorkspaceState, writeCaption, writeSampleOverride, writeSamplePrompts, writeTrainingDatasetConfig } from "./api";
 import type { ImagePrepResult, LoraCatalogItem, MetadataInspection, TrainingCommandPreview, TrainingConfigResult, WorkbenchPreview } from "./api";
 import type { DatasetItem, SectionKey } from "./types";
 
@@ -1204,7 +1204,7 @@ function PreferencesPage(props: { dit: string; setDit: (value: string) => void; 
 }
 
 function CatalogPage(props: { title: string; description: string; folder: string; setFolder: (value: string) => void; items: LoraCatalogItem[]; mode: "explorer" | "royale"; loading: boolean; onScan: () => void; family: string; setFamily: (value: string) => void; primary: string; setPrimary: (value: string) => void; prompt: string; setPrompt: (value: string) => void; output: string; setOutput: (value: string) => void; onRender: () => void }) {
-  return <><section className="card prep-banner"><div><div className="section-kicker">WORKBENCH / {props.mode.toUpperCase()}</div><h2>{props.title}</h2><p>{props.description}</p></div><span className="pill accent">CATALOG</span></section><section className="card prep-options"><div className="field-row"><label className="path-field"><span className="field-icon">⌁</span><input value={props.folder} onChange={(event) => props.setFolder(event.target.value)} placeholder="output_loras" /></label><button className="button primary" disabled={props.loading || !props.folder.trim()} onClick={props.onScan}>Scan <span>→</span></button></div><div className="training-form-grid catalog-render-form"><label className="prep-control"><span>Family</span><select value={props.family} onChange={(event) => props.setFamily(event.target.value)}><option value="klein">Flux Klein 9B</option><option value="krea2">Krea 2</option><option value="h3">MiniMax H3</option></select></label>{props.mode === "explorer" && <label className="prep-control"><span>Primary LoRA</span><input value={props.primary} onChange={(event) => props.setPrimary(event.target.value)} placeholder="output_loras/model.safetensors" /></label>}<label className="prep-control"><span>Prompt</span><input value={props.prompt} onChange={(event) => props.setPrompt(event.target.value)} /></label><label className="prep-control"><span>Rendered output folder</span><input value={props.output} onChange={(event) => props.setOutput(event.target.value)} /></label></div><div className="prep-actions"><button className="button ghost" disabled={props.loading || (props.mode === "explorer" && !props.primary.trim())} onClick={props.onRender}>{props.mode === "explorer" ? "Render variants" : "Render sequence"} <span>→</span></button><span className="helper-text">Model paths come from Preferences. GPU work continues as a durable job after refresh.</span></div></section><section className="card table-card"><div className="section-heading"><div><div className="section-kicker">CHECKPOINT INVENTORY</div><h3>{props.items.length} files</h3></div></div>{props.items.length === 0 ? <EmptyState text="Scan a workspace folder to list SafeTensors checkpoints." /> : <div className="table-wrap"><table><thead><tr><th>{props.mode === "royale" ? "Epoch / label" : "Name"}</th><th>Path</th><th>Size</th><th>{props.mode === "explorer" ? "Tensors" : "Status"}</th><th /></tr></thead><tbody>{props.items.map((item) => <tr key={item.relative_path}><td>{item.label ?? item.name}</td><td><a className="file-link" href={artifactDownloadUrl(item.relative_path)}>{item.relative_path}</a></td><td>{(item.size_bytes / 1024 / 1024).toFixed(1)} MB</td><td>{props.mode === "explorer" ? (item.tensor_count ?? "—") : <span className="caption-state ready">Ready to render</span>}</td><td><a className="row-action" href={artifactDownloadUrl(item.relative_path)}>Download</a></td></tr>)}</tbody></table></div>}</section></>;
+  return <><section className="card prep-banner"><div><div className="section-kicker">WORKBENCH / {props.mode.toUpperCase()}</div><h2>{props.title}</h2><p>{props.description}</p></div><span className="pill accent">CATALOG</span></section><section className="card prep-options"><div className="field-row"><label className="path-field"><span className="field-icon">⌁</span><input value={props.folder} onChange={(event) => props.setFolder(event.target.value)} placeholder="output_loras" /></label><button className="button primary" disabled={props.loading || !props.folder.trim()} onClick={props.onScan}>Scan <span>→</span></button></div><div className="training-form-grid catalog-render-form"><label className="prep-control"><span>Family</span><select value={props.family} onChange={(event) => props.setFamily(event.target.value)}><option value="klein">Flux Klein 9B</option><option value="krea2">Krea 2</option><option value="h3">MiniMax H3</option></select></label>{props.mode === "explorer" && <label className="prep-control"><span>Primary LoRA</span><input value={props.primary} onChange={(event) => props.setPrimary(event.target.value)} placeholder="output_loras/model.safetensors" /></label>}<label className="prep-control"><span>Prompt</span><input value={props.prompt} onChange={(event) => props.setPrompt(event.target.value)} /></label><label className="prep-control"><span>Rendered output folder</span><input value={props.output} onChange={(event) => props.setOutput(event.target.value)} /></label></div><div className="prep-actions"><button className="button ghost" disabled={props.loading || (props.mode === "explorer" && !props.primary.trim())} onClick={props.onRender}>{props.mode === "explorer" ? "Render variants" : "Render sequence"} <span>→</span></button><span className="helper-text">Model paths come from Preferences. GPU work continues as a durable job after refresh.</span></div></section><section className="card table-card"><div className="section-heading"><div><div className="section-kicker">CHECKPOINT INVENTORY</div><h3>{props.items.length} files</h3></div></div>{props.items.length === 0 ? <EmptyState text="Scan a workspace folder to list SafeTensors checkpoints." /> : <div className="table-wrap"><table><thead><tr><th>{props.mode === "royale" ? "Epoch / label" : "Name"}</th><th>Path</th><th>Size</th><th>{props.mode === "explorer" ? "Tensors" : "Status"}</th><th /></tr></thead><tbody>{props.items.map((item) => <tr key={item.relative_path}><td>{item.label ?? item.name}</td><td><ArtifactLink path={item.relative_path} label={item.relative_path} className="file-link" /></td><td>{(item.size_bytes / 1024 / 1024).toFixed(1)} MB</td><td>{props.mode === "explorer" ? (item.tensor_count ?? "—") : <span className="caption-state ready">Ready to render</span>}</td><td><ArtifactLink path={item.relative_path} label="Download" className="row-action" /></td></tr>)}</tbody></table></div>}</section></>;
 }
 
 function JobsPage(props: { jobs: import("./api").JobRecord[]; onCancel: (id: string) => void }) {
@@ -1217,16 +1217,50 @@ function ArtifactLinks({ value }: { value: unknown }) {
   function collect(item: unknown) { if (Array.isArray(item)) item.forEach(collect); else if (item && typeof item === "object") Object.entries(item).forEach(([key, child]) => key.endsWith("path") && typeof child === "string" ? paths.push(child) : collect(child)); }
   collect(value);
   const unique = Array.from(new Set(paths));
-  return unique.length ? <div className="artifact-links">{unique.map((path) => <span className="artifact-item" key={path}><ArtifactPreview path={path} /><a className="row-action" href={artifactDownloadUrl(path)}>Download {path.split("/").pop()}</a></span>)}</div> : null;
+  return unique.length ? <div className="artifact-links">{unique.map((path) => <span className="artifact-item" key={path}><ArtifactPreview path={path} /><ArtifactLink path={path} label={`Download ${path.split("/").pop()}`} className="row-action" /></span>)}</div> : null;
 }
 
 function ArtifactPreview({ path }: { path: string }) {
   const lower = path.toLowerCase();
-  const url = artifactDownloadUrl(path);
+  const url = useArtifactUrl(path);
+  if (!url) return null;
   if (/\.(png|jpe?g|webp|gif)$/.test(lower)) return <a href={url} target="_blank" rel="noreferrer"><img className="artifact-thumb" src={url} alt={path} /></a>;
   if (/\.(mp4|webm|mov)$/.test(lower)) return <video className="artifact-thumb" src={url} controls preload="metadata" />;
   if (/\.(wav|mp3|flac|m4a|ogg)$/.test(lower)) return <audio className="artifact-audio" src={url} controls preload="metadata" />;
   return null;
+}
+
+function useArtifactUrl(path: string): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    void fetchArtifact(path).then((blob) => {
+      if (!active) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(() => {
+      if (active) setUrl(null);
+    });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+  return url;
+}
+
+function ArtifactLink({ path, label, className }: { path: string; label: string; className: string }) {
+  async function download() {
+    const blob = await fetchArtifact(path);
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = path.split("/").pop() || "artifact";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+  return <button type="button" className={className} onClick={() => void download()}>{label}</button>;
 }
 
 function DatasetTable(props: { items: DatasetItem[]; onOpenCaptions: () => void; onSelect: (item: DatasetItem) => void; onRemove: (item: DatasetItem) => void }) {

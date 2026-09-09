@@ -8,6 +8,18 @@ export function artifactDownloadUrl(path: string) {
   return `${API_BASE}/api/artifacts/download?${params}`;
 }
 
+export async function fetchArtifact(path: string): Promise<Blob> {
+  const headers = new Headers();
+  if (API_TOKEN) {
+    headers.set("Authorization", `Bearer ${API_TOKEN}`);
+  }
+  const response = await fetch(artifactDownloadUrl(path), { headers });
+  if (!response.ok) {
+    throw new Error(`Unable to download artifact (${response.status})`);
+  }
+  return response.blob();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!(init?.body instanceof FormData)) {
