@@ -343,6 +343,18 @@ function App() {
     finally { setLoading(false); }
   }
 
+  async function savePreferences() {
+    setLoading(true); setError("");
+    try {
+      await updateWorkspaceState({
+        training_dit: trainingDit.trim(), training_vae: trainingVae.trim(),
+        training_text_encoder: trainingTextEncoder.trim(), training_output_dir: trainingOutputDir.trim(),
+      });
+      setMessage("Preferences saved to the shared workspace state");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save preferences"); setMessage("Preferences save failed"); }
+    finally { setLoading(false); }
+  }
+
   async function previewTraining() {
     setLoading(true);
     setError("");
@@ -482,6 +494,10 @@ function App() {
         if (typeof result.values.prep_replace_originals === "boolean") {
           setPrepReplaceOriginals(result.values.prep_replace_originals);
         }
+        if (typeof result.values.training_dit === "string") setTrainingDit(result.values.training_dit);
+        if (typeof result.values.training_vae === "string") setTrainingVae(result.values.training_vae);
+        if (typeof result.values.training_text_encoder === "string") setTrainingTextEncoder(result.values.training_text_encoder);
+        if (typeof result.values.training_output_dir === "string" && result.values.training_output_dir.trim()) setTrainingOutputDir(result.values.training_output_dir);
       })
       .catch(() => {
         // The UI remains usable with defaults while an older API is restarting.
@@ -674,6 +690,7 @@ function App() {
           {active === "profiler" && <ToolPage title="Profiler" eyebrow="WORKBENCH / PROFILE" description="Generate a Krea 2 weight-only HTML report from a LoRA." source={profilerLora} setSource={setProfilerLora} output={profilerOutput} setOutput={setProfilerOutput} sourceLabel="LoRA file" preview={profilerPreview} loading={loading} onPreview={previewProfiler} onStart={runProfiler} />}
           {active === "extract" && <ToolPage title="Extract" eyebrow="TOOLS / EXTRACT" description="Extract a lower-rank LoRA with the existing Fizgig SVD engine." source={extractSource} setSource={setExtractSource} output={extractOutput} setOutput={setExtractOutput} sourceLabel="Source LoRA" extra={<><label className="prep-control"><span>Samples (0 = weight-only)</span><input type="number" min="0" value={extractSamples} onChange={(event) => setExtractSamples(event.target.value)} /></label><label className="prep-control"><span>Target rank</span><input type="number" min="1" value={extractRank} onChange={(event) => setExtractRank(event.target.value)} /></label></>} preview={extractPreview} loading={loading} onPreview={previewExtractor} onStart={runExtractor} />}
           {active === "metadata" && <MetadataPage path={metadataPath} setPath={setMetadataPath} result={metadataResult} loading={loading} onInspect={inspectMetadataFile} />}
+          {active === "preferences" && <PreferencesPage dit={trainingDit} setDit={setTrainingDit} vae={trainingVae} setVae={setTrainingVae} textEncoder={trainingTextEncoder} setTextEncoder={setTrainingTextEncoder} outputDir={trainingOutputDir} setOutputDir={setTrainingOutputDir} loading={loading} onSave={savePreferences} />}
           {active !== "start" && active !== "captions" && active !== "prep" && active !== "training" && active !== "samples" && active !== "profiler" && active !== "extract" && <ComingSoonPage section={active} />}
         </div>
       </main>
@@ -978,6 +995,13 @@ function MetadataPage(props: { path: string; setPath: (value: string) => void; r
     <section className="card prep-banner"><div><div className="section-kicker">TOOLS / METADATA</div><h2>Inspect a SafeTensors file</h2><p>Read the header, model metadata, tensor names, dtypes, and shapes without loading model weights.</p></div><span className="pill accent">READ ONLY</span></section>
     <section className="card prep-options"><div className="field-row"><label className="path-field"><span className="field-icon">⌁</span><input value={props.path} onChange={(event) => props.setPath(event.target.value)} placeholder="output_loras/model.safetensors" /></label><button className="button primary" disabled={props.loading || !props.path.trim()} onClick={props.onInspect}>Inspect <span>→</span></button></div></section>
     {props.result && <><div className="metric-grid"><Metric label="File size" value={`${(props.result.size_bytes / 1024 / 1024).toFixed(1)} MB`} tone="blue" /><Metric label="Tensors" value={String(props.result.tensor_count)} tone="green" /><Metric label="Metadata fields" value={String(Object.keys(props.result.metadata).length)} tone="amber" /></div><section className="card config-preview"><div className="section-heading"><div><div className="section-kicker">MODEL METADATA</div><h3>{props.result.relative_path || props.result.path}</h3></div></div><pre>{JSON.stringify(props.result.metadata, null, 2)}</pre></section><section className="card table-card"><div className="section-heading"><div><div className="section-kicker">TENSOR INDEX</div><h3>Header entries</h3></div></div><div className="table-wrap"><table><thead><tr><th>Name</th><th>dtype</th><th>shape</th><th>offsets</th></tr></thead><tbody>{props.result.tensors.map((tensor) => <tr key={tensor.name}><td>{tensor.name}</td><td>{tensor.dtype}</td><td>{JSON.stringify(tensor.shape)}</td><td>{JSON.stringify(tensor.data_offsets)}</td></tr>)}</tbody></table></div></section></>}
+  </>;
+}
+
+function PreferencesPage(props: { dit: string; setDit: (value: string) => void; vae: string; setVae: (value: string) => void; textEncoder: string; setTextEncoder: (value: string) => void; outputDir: string; setOutputDir: (value: string) => void; loading: boolean; onSave: () => void }) {
+  return <>
+    <section className="card prep-banner"><div><div className="section-kicker">TOOLS / PREFERENCES</div><h2>Keep remote paths in one place</h2><p>These values are saved in the workspace state and reused by Training, Samples, Profiler, and other browser surfaces.</p></div><span className="pill accent">PERSISTED</span></section>
+    <section className="card prep-options"><div className="section-heading"><div><div className="section-kicker">MODEL FILES</div><h3>Mounted model paths</h3></div><span className="pill">SERVER-SIDE PATHS</span></div><div className="training-form-grid"><label className="prep-control"><span>DiT model</span><input value={props.dit} onChange={(event) => props.setDit(event.target.value)} placeholder="/models/base.safetensors" /></label><label className="prep-control"><span>VAE</span><input value={props.vae} onChange={(event) => props.setVae(event.target.value)} placeholder="/models/vae.safetensors" /></label><label className="prep-control"><span>Text encoder</span><input value={props.textEncoder} onChange={(event) => props.setTextEncoder(event.target.value)} placeholder="/models/text_encoder.safetensors" /></label><label className="prep-control"><span>Default output directory</span><input value={props.outputDir} onChange={(event) => props.setOutputDir(event.target.value)} /></label></div><div className="prep-actions"><button className="button primary" disabled={props.loading} onClick={props.onSave}>Save preferences <span>✓</span></button><span className="helper-text">The browser cannot read your PC filesystem directly; these paths must exist in the server or Modal workspace.</span></div></section>
   </>;
 }
 
