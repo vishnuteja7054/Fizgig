@@ -34,3 +34,49 @@ button { cursor: pointer; }
 .artifact-item { display: inline-flex; flex-direction: column; gap: 5px; align-items: flex-start; }.artifact-thumb { display: block; width: 96px; height: 64px; object-fit: cover; border: 1px solid #33425c; border-radius: 6px; background: #080b11; }.artifact-audio { width: 180px; height: 27px; }
 .repair-grid { display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)); gap: 10px; margin-top: 16px; }.repair-block { padding: 12px; border: 1px solid #293449; border-radius: 9px; background: #0d121c; }.repair-block-title { display: flex; justify-content: space-between; margin-bottom: 9px; color: #b8c8de; font-size: 11px; text-transform: capitalize; }.repair-block-title span { color: #6addab; font-size: 9px; }.repair-block label { display: block; margin: 6px 0; color: #78859d; font-size: 9px; }.repair-block label input { accent-color: #82d4ff; margin-right: 5px; }.repair-range { width: 100%; accent-color: #7fd7ff; }.repair-range.donor { accent-color: #c3a1ff; }.repair-block output { display: block; color: #9cb7d4; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; }.advanced-state { margin-top: 16px; color: #8290a8; font-size: 10px; }.advanced-state summary { cursor: pointer; }.repair-empty { min-height: 90px; }.catalog-render-form { grid-template-columns: repeat(4, minmax(160px, 1fr)); }
 .app-shell { display: block; min-height: 100vh; background: #1d252f; }.sidebar { display: none; }.main-area { width: 100%; min-width: 0; }.window-chrome { display: flex; align-items: center; justify-content: space-between; height: 31px; padding: 0 12px; color: #f1f3f7; background: #77008d; font-size: 12px; font-weight: 600; }.window-status { display: grid; place-items: center; padding: 4px 3px; }.tab-strip { position: relative; z-index: 5; display: flex; align-items: stretch; overflow-x: auto; min-height: 38px; padding: 3px 9px 0; border-bottom: 1px solid #b9c0c8; background: #1d252f; }.tab-button { height: 35px; padding: 0 17px; border: 1px solid #b9c0c8; border-bottom: 0; color: #f0f2f5; background: #202a35; font-size: 13px; font-weight: 700; white-space: nowrap; }.tab-button + .tab-button { border-left: 0; }.tab-button:hover { background: #314052; }.tab-button.active { position: relative; z-index: 1; color: #fff; background: #367ed8; }.more-tools-button { display: grid; place-items: center; min-width: 38px; margin-left: auto; border: 0; background: transparent; }.more-tools-button:hover { background: #2b3745; }.more-tools-menu { position: absolute; top: 38px; right: 10px; display: flex; flex-direction: column; min-width: 170px; padding: 5px; border: 1px solid #647282; border-radius: 3px; background: #252f3b; box-shadow: 0 12px 25px #070a0dcc; }.more-tools-menu button { padding: 9px 12px; border: 0; color: #e8edf3; background: transparent; text-align: left; font-size: 12px; }.more-tools-menu button:hover { background: #3a4b5f; }.content { width: calc(100% - 74px); max-width: 1220px; margin: 0 auto; padding: 31px 0 54px; }.status-line { display: none; }.welcome-heading { padding-top: 0; }.workflow-card { overflow: hidden; border-color: #4c5968; border-radius: 0; background: #27313d; }.workflow-body { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr); min-height: 264px; margin: 7px -24px -18px; border-top: 1px solid #3e4a58; }.workflow-steps { padding: 22px 24px 20px; }.workflow-art { overflow: hidden; border-left: 1px solid #4b5765; background: #151b23; }.workflow-art img { display: block; width: 100%; height: 100%; min-height: 264px; object-fit: cover; }.original-folder-card, .post-tools-card { border-radius: 0; background: #27313d; }.original-folder-card { border-color: #647181; }.setup-warning { border-radius: 0; }.post-tools-card { border-color: #465363; }.card { border-radius: 0; }.button, .path-field, .prep-control input, .prep-control select, .preset-toolbar select, .preset-save-row input, .preset-json { border-radius: 2px; }.tab-strip + .content .hero-card { border-radius: 0; }
+/* Desktop workbench typography and control rhythm. The original app is a
+   compact Tk desktop tool, so keep the browser version readable and precise
+   instead of using tiny dashboard labels and oversized rounded cards. */
+:root { font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif; color: #f1f3f5; }
+body { font-size: 14px; background: #1d252f; }
+.window-chrome { font-size: 13px; font-weight: 600; }
+.tab-button { padding: 0 14px; font-size: 14px; font-weight: 600; }
+.content { width: calc(100% - 94px); max-width: 1175px; padding-top: 28px; }
+.welcome-heading { padding-bottom: 23px; }
+.welcome-heading h2 { font-size: 30px; font-weight: 700; letter-spacing: 0; }
+.welcome-heading p { max-width: 900px; color: #9aa7b7; font-size: 14px; line-height: 1.45; }
+.card, .workflow-card, .original-folder-card, .post-tools-card { border-color: #526070; background: #27313d; }
+.section-heading h3, .post-tools-card h3 { font-size: 16px; font-weight: 700; letter-spacing: 0; }
+.section-kicker, .nav-heading { font-size: 10px; letter-spacing: .11em; }
+.workflow-card { padding: 20px 23px 18px; }
+.workflow-body { margin: 7px -23px -18px; }
+.workflow-steps { padding: 21px 23px 19px; }
+.workflow-step { grid-template-columns: 28px 105px auto 1fr; gap: 9px; padding: 8px 0; font-size: 14px; line-height: 1.3; }
+.workflow-number { width: auto; height: auto; border-radius: 0; color: #4c93e8; background: transparent; font-size: 14px; font-weight: 600; }
+.workflow-step strong { color: #f1f3f5; font-size: 14px; font-weight: 700; }
+.optional-badge { padding: 2px 5px; font-size: 10px; }
+.original-description, .helper-text { font-size: 12px; line-height: 1.45; }
+.original-folder-card, .post-tools-card { padding: 21px 23px 19px; }
+.path-field { height: 36px; border-color: #8794a3; background: #f5f6f7; }
+.path-field input { color: #20262d; font-size: 14px; }
+.field-suffix { color: #66717d; font-size: 11px; }
+.field-icon { color: #4c82ba; font-size: 15px; }
+.button { height: 36px; padding: 0 15px; border-radius: 2px; font-size: 12px; font-weight: 700; }
+.button.primary { color: #fff; background: #347bd1; box-shadow: none; }
+.button.ghost { color: #f0f3f6; border-color: #aab5c0; background: #27313d; }
+.button.ghost:hover, .button.primary:hover { filter: brightness(1.12); }
+.folder-picker-button { height: 36px; }
+.post-tool-row { grid-template-columns: 160px 1fr; padding: 10px 0; font-size: 12px; }
+.post-tool-row strong { color: #4c93e8; font-size: 14px; }
+.table-card, .caption-list-card, .editor-card, .preset-workspace, .config-preview, .workspace-card, .prep-options { padding-left: 23px; padding-right: 23px; }
+.table-card th { font-size: 10px; }
+.table-card td, .file-link { font-size: 12px; }
+.caption-row-main strong { font-size: 13px; }
+.caption-row-main small, .caption-state { font-size: 11px; }
+.editor-label, .prep-control, .prep-check, .training-checks { font-size: 12px; }
+.editor-label textarea, .code-editor { font-size: 13px; }
+.prep-banner h2, .rollout-card h2 { font-size: 26px; }
+.prep-banner p, .rollout-card p { font-size: 13px; }
+.metric span:not(.metric-mark) { font-size: 11px; }
+.metric strong { font-size: 21px; }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid #5aa0e8; outline-offset: 1px; }
