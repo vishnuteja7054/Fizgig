@@ -119,6 +119,8 @@ class BrowserApiTests(unittest.TestCase):
     def test_optional_bearer_auth_protects_api_but_not_health(self) -> None:
         self.process.terminate()
         self.process.wait(timeout=5)
+        # Avoid TIME_WAIT/reuse races when replacing the unauthenticated server.
+        self.port = self._free_port()
         self._start_server(token="test-token")
         self._wait_for_health()
         self.assertEqual(self._request("/api/health")[0], 200)

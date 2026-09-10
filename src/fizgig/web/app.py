@@ -13,6 +13,7 @@ from typing import Any
 
 try:
     from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, Field
@@ -302,6 +303,22 @@ def create_app(workspace_root: str | os.PathLike[str] | None = None) -> FastAPI:
         version="0.1.0",
         description="Browser-safe control plane for the Fizgig workbench.",
     )
+
+    cors_origins = [
+        origin.strip()
+        for origin in os.environ.get(
+            "FIZGIG_CORS_ORIGINS",
+            "http://127.0.0.1:5173,http://localhost:5173",
+        ).split(",")
+        if origin.strip()
+    ]
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     api_token = os.environ.get("FIZGIG_API_TOKEN", "").strip()
 

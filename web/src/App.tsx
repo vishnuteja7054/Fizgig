@@ -885,11 +885,23 @@ function StartPage(props: {
             {props.loading ? "Importing…" : "Choose local folder"}<span>＋</span>
             <input
               className="folder-picker-input"
+              aria-label="Choose local folder"
               type="file"
               multiple
               accept=".jpg,.jpeg,.png,.gif,.bmp,.webp,.tif,.tiff,.mp4,.wav,.mp3,.flac,.m4a,.txt"
               onChange={props.onImport}
               {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+            />
+          </label>
+          <label className="button ghost folder-picker-button">
+            Choose image files<span>＋</span>
+            <input
+              className="folder-picker-input"
+              aria-label="Choose image files"
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.gif,.bmp,.webp,.tif,.tiff,.mp4,.wav,.mp3,.flac,.m4a,.txt"
+              onChange={props.onImport}
             />
           </label>
           <div className="helper-text">Choose a folder from this PC; supported files are copied into the workspace path above. Existing files are never overwritten.</div>
@@ -942,7 +954,7 @@ function CaptionsPage(props: {
       <section className="card editor-card">
         {props.selected ? <>
           <div className="section-heading"><div><div className="section-kicker">EDITING CAPTION</div><h3>{props.selected.relative_path.split("/").pop()}</h3></div><span className={`type-badge ${props.selected.kind}`}>{props.selected.kind}</span></div>
-          <div className="editor-preview"><div className="preview-glyph">{props.selected.kind === "audio" ? "◖" : props.selected.kind === "video" ? "▶" : "✦"}</div><span>{props.selected.relative_path}</span></div>
+          <div className="editor-preview">{props.selected.kind === "image" ? <ArtifactPreview path={props.selected.relative_path} /> : <div className="preview-glyph">{props.selected.kind === "audio" ? "◖" : "▶"}</div>}<span>{props.selected.relative_path}</span></div>
           <label className="editor-label">Caption text<textarea value={props.caption} onChange={(event) => props.setCaption(event.target.value)} placeholder="Describe the subject, view, setting, and details…" /></label>
           <div className="editor-actions"><span className="helper-text">Saved as {props.selected.caption_relative_path}</span><button className="button primary" onClick={props.onSave}>Save caption <span>✓</span></button></div>
         </> : <EmptyState text="Select an item to edit its caption." large />}
